@@ -57,5 +57,11 @@ services:
     rootDir: frontend
     dockerfilePath: ./Dockerfile
     dockerContext: .
-    dockerBuildArgs:
-      VITE_API_URL: https://ondc-backend.onrender.com/api/v1
+    # Render passes envVars as Docker --build-arg values automatically for
+    # docker-runtime services, matched against the Dockerfile's `ARG`
+    # instructions (here, `ARG VITE_API_URL` — see frontend/Dockerfile).
+    # There's no separate "build args" field; this is the same envVars
+    # mechanism the backend service above uses for its runtime env vars.
+    envVars:
+      - key: VITE_API_URL
+        value: https://ondc-backend.onrender.com/api/v1
