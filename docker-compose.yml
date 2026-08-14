@@ -1,0 +1,91 @@
+# Full containerized stack: Postgres, Redis, the FastAPI backend, and the
+# React frontend (served by nginx, which proxies /api to the backend — see
+# frontend/nginx.conf). For local development against a hot-reloading
+# backend instead, use backend/docker-compose.dev.yml (Postgres+Redis
+# only) with `uvicorn --reload` run directly on the host.
+#
+#   cp .env.example .env    # then: docker compose up --build
+#
+# Note: this defines the stack and has been reviewed for correctness, but
+# has not been run with `docker compose up` in this environment (no Docker
+# available here) — same honesty as the Sepolia deployment scripts. The
+# backend (96 tests), frontend (Playwright E2E), and blockchain bridge (5
+# live-chain tests) have all been verified directly against the host
+# Python/Node toolchains instead; see the respective READMEs.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ondc}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ondc}
+      POSTGRES_DB: ${POSTGRES_DB:-ondc_ai}
+    volumes:
+      - ondc_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ondc} -d ${POSTGRES_DB:-ondc_ai}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-ondc}:${POSTGRES_PASSWORD:-ondc}@postgres:5432/${POSTGRES_DB:-ondc_ai}
+      REDIS_URL: redis://redis:6379/0
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?Set JWT_SECRET_KEY in .env — see backend/.env.example}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080}
+      ENVIRONMENT: production
+      BLOCKCHAIN_ENABLED: ${BLOCKCHAIN_ENABLED:-false}
+      BLOCKCHAIN_RPC_URL: ${BLOCKCHAIN_RPC_URL:-http://127.0.0.1:8545}
+      BLOCKCHAIN_NETWORK: ${BLOCKCHAIN_NETWORK:-localhost}
+      BLOCKCHAIN_PRIVATE_KEY: ${BLOCKCHAIN_PRIVATE_KEY:-}
+    volumes:
+      # app/core/config.py's REPO_ROOT walks up 3 parents from
+      # /app/app/core/config.py, landing on container root (WORKDIR /app
+      # holds the app code) — so these mount at the container root to
+      # match, not under /app.
+      #
+      # Fraud model artifact + dataset — optional; app/ml/model.py trains a
+      # smaller model on the fly if absent (see backend/README.md).
+      - ./trained_models:/trained_models:ro
+      - ./datasets:/datasets:ro
+      # Contract ABIs + deployment addresses — optional; the blockchain
+      # bridge no-ops without them (see app/blockchain/client.py).
+      - ./artifacts:/artifacts:ro
+      - ./deployments:/deployments:ro
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: /api/v1
+    ports:
+      - "8080:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  ondc_postgres_data:

@@ -1,0 +1,61 @@
+# Render Blueprint — https://render.com/docs/blueprint-spec
+#
+# One-click deploy: connect this repo on Render and it provisions Postgres,
+# Redis, the backend (Docker), and the frontend (Docker) from this file.
+# Unlike docker-compose.yml's same-origin nginx proxy, Render gives each
+# service its own public hostname, so the frontend is built with an
+# absolute VITE_API_URL and the backend's CORS_ORIGINS is set to the
+# frontend's URL explicitly — cross-origin, not same-origin.
+#
+# rootDir paths below are relative to this repo's root — i.e. this repo
+# *is* ondc_blockchain_ai (see the root README for why: the project used
+# to live inside a larger, unrelated monorepo with no remote of its own).
+
+databases:
+  - name: ondc-postgres
+    plan: free
+    databaseName: ondc_ai
+    user: ondc
+
+services:
+  - type: redis
+    name: ondc-redis
+    plan: free
+    ipAllowList: []
+
+  - type: web
+    name: ondc-backend
+    runtime: docker
+    plan: free
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: ondc-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: ondc-redis
+          property: connectionString
+      - key: JWT_SECRET_KEY
+        generateValue: true
+      - key: ENVIRONMENT
+        value: production
+      - key: CORS_ORIGINS
+        value: https://ondc-frontend.onrender.com
+      - key: BLOCKCHAIN_ENABLED
+        value: "false"
+
+  - type: web
+    name: ondc-frontend
+    runtime: docker
+    plan: free
+    rootDir: frontend
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    dockerBuildArgs:
+      VITE_API_URL: https://ondc-backend.onrender.com/api/v1

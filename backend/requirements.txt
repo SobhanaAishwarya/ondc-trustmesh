@@ -1,0 +1,32 @@
+fastapi==0.141.1
+uvicorn[standard]==0.52.1
+sqlalchemy==2.0.51
+alembic==1.18.5
+psycopg[binary]==3.3.4
+pydantic==2.13.4
+pydantic-settings==2.14.2
+email-validator==2.3.0
+pyjwt==2.13.0
+bcrypt==5.0.0
+python-multipart==0.0.32
+redis==8.1.0
+python-dotenv==1.2.2
+slowapi==0.1.10
+
+# AI / ML (fraud detection, recommendations)
+scikit-learn==1.9.0
+pandas==3.0.5
+numpy==2.5.1
+joblib==1.5.3
+
+# Blockchain bridge
+web3==7.16.0
+
+# tests
+pytest==9.1.1
+httpx==0.28.1
+
+# security scanning (`bandit -r app`) and load testing (loadtest/) — dev-only,
+# not needed to run the app
+bandit==1.9.4
+locust==2.46.3

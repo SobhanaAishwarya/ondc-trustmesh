@@ -1,0 +1,65 @@
+name: CI
+
+# Three independent jobs, matching the three toolchains in this repo — a
+# failure in one (e.g. a flaky npm registry) doesn't block the others from
+# reporting.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    name: Backend (pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: "pip"
+          cache-dependency-path: backend/requirements.txt
+      - name: Install dependencies
+        working-directory: backend
+        run: pip install -r requirements.txt
+      - name: Run tests
+        working-directory: backend
+        env:
+          DATABASE_URL: "sqlite://"
+          JWT_SECRET_KEY: "ci-only-secret-do-not-use-in-prod"
+        run: pytest -v
+
+  frontend:
+    name: Frontend (type-check + build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Type-check and build
+        working-directory: frontend
+        run: npm run build
+
+  contracts:
+    name: Smart contracts (Hardhat)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Compile contracts
+        run: npx hardhat compile
+      - name: Run contract tests
+        run: npx hardhat test

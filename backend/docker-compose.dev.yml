@@ -1,0 +1,33 @@
+# Local dev dependencies for the backend only (Postgres + Redis). The full
+# multi-service stack (backend + frontend + reverse proxy) lands in the
+# deployment/ module — this file exists so `alembic upgrade head` and
+# `uvicorn app.main:app` have something to connect to during development.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ondc
+      POSTGRES_PASSWORD: ondc
+      POSTGRES_DB: ondc_ai
+    ports:
+      - "5432:5432"
+    volumes:
+      - ondc_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ondc -d ondc_ai"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  ondc_postgres_data:

@@ -1,0 +1,24 @@
+__pycache__/
+*.pyc
+.env
+node_modules/
+artifacts/
+cache/
+.venv/
+*.db
+.pytest_cache/
+.coverage
+htmlcov/
+# Ephemeral local-chain deployment records — regenerate with
+# `npx hardhat run scripts/deploy.js --network localhost`. Once deployed for
+# real to Sepolia, deployments/sepolia.json is worth committing deliberately
+# (git add -f) since those addresses are persistent, not throwaway.
+deployments/
+
+# Frontend
+frontend/dist/
+frontend/.env.local
+frontend/node_modules/.tmp/
+frontend/test-results/
+frontend/playwright-report/
+frontend/blob-report/
