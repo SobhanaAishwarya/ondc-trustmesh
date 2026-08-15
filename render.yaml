@@ -62,6 +62,18 @@ services:
     # instructions (here, `ARG VITE_API_URL` — see frontend/Dockerfile).
     # There's no separate "build args" field; this is the same envVars
     # mechanism the backend service above uses for its runtime env vars.
+    #
+    # This URL is the *real* assigned backend hostname, not the
+    # "ondc-backend" placeholder — Render appended "-5kxh" on first
+    # deploy because the plain name was already taken by another Render
+    # account (hostnames are global, not per-account). Render has no
+    # Blueprint mechanism to reference another web service's *public*
+    # URL dynamically (fromService's `host` property is the internal
+    # hostname, not the onrender.com one a browser can reach) — this has
+    # to be hardcoded and re-confirmed if the backend service is ever
+    # renamed or recreated. If you fork this repo, deploy once, check
+    # what hostname Render actually assigned the backend, then update
+    # this value and redeploy the frontend.
     envVars:
       - key: VITE_API_URL
-        value: https://ondc-backend.onrender.com/api/v1
+        value: https://ondc-backend-5kxh.onrender.com/api/v1
