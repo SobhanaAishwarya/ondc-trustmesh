@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createProduct, deactivateProduct, listMyProducts, updateProduct } from '../../api/products'
 import { Badge, Button, Card, EmptyState, ErrorBanner, Input, Label, LoadingBlock, PageHeader, Select, TextArea } from '../../components/ui'
+import { ProductImage } from '../../components/domain'
 import { formatCurrency } from '../../lib/format'
 import { apiErrorMessage } from '../../api/client'
 import { CATEGORIES } from '../../lib/constants'
@@ -14,9 +15,11 @@ function ProductForm({ onClose }: { onClose: () => void }) {
   const [category, setCategory] = useState(CATEGORIES[0])
   const [price, setPrice] = useState('')
   const [stock, setStock] = useState(10)
+  const [imageUrl, setImageUrl] = useState('')
 
   const mutation = useMutation({
-    mutationFn: () => createProduct({ name, description, category, price, stock_quantity: stock }),
+    mutationFn: () =>
+      createProduct({ name, description, category, price, stock_quantity: stock, image_url: imageUrl || undefined }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['my-products'] })
       onClose()
@@ -63,6 +66,15 @@ function ProductForm({ onClose }: { onClose: () => void }) {
           <Label>Stock quantity</Label>
           <Input required type="number" min="0" value={stock} onChange={(e) => setStock(Number(e.target.value))} />
         </div>
+        <div className="sm:col-span-2">
+          <Label>Image URL (optional)</Label>
+          <Input
+            type="url"
+            placeholder="https://..."
+            value={imageUrl}
+            onChange={(e) => setImageUrl(e.target.value)}
+          />
+        </div>
         <div className="flex gap-2 sm:col-span-2">
           <Button type="submit" isLoading={mutation.isPending}>
             Create product
@@ -91,7 +103,9 @@ function ProductCard({ product }: { product: Product }) {
   })
 
   return (
-    <Card className="p-4">
+    <Card className="overflow-hidden p-0">
+      <ProductImage src={product.image_url} alt={product.name} className="h-32 w-full" />
+      <div className="p-4">
       <div className="flex items-start justify-between">
         <div>
           <p className="text-xs font-medium text-brand-blue">{product.category}</p>
@@ -117,6 +131,7 @@ function ProductCard({ product }: { product: Product }) {
           Deactivate
         </Button>
       )}
+      </div>
     </Card>
   )
 }

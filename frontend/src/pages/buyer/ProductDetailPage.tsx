@@ -7,7 +7,7 @@ import { placeOrder } from '../../api/orders'
 import { addToWishlist } from '../../api/wishlist'
 import { apiErrorMessage } from '../../api/client'
 import { Button, Card, ErrorBanner, LoadingBlock, Select } from '../../components/ui'
-import { TrustScoreBadge } from '../../components/domain'
+import { ProductImage, TrustScoreBadge } from '../../components/domain'
 import { formatCurrency } from '../../lib/format'
 import { PAYMENT_METHODS } from '../../lib/constants'
 import type { PaymentMethod } from '../../types'
@@ -51,7 +51,9 @@ export function ProductDetailPage() {
 
   return (
     <div className="mx-auto grid max-w-4xl gap-6 md:grid-cols-2">
-      <Card className="p-6">
+      <Card className="overflow-hidden p-0">
+        <ProductImage src={product.image_url} alt={product.name} className="h-64 w-full" />
+        <div className="p-6">
         <p className="text-xs font-medium text-brand-blue">{product.category}</p>
         <h1 className="mt-1 text-2xl font-semibold">{product.name}</h1>
         <p className="mt-2 text-slate-600 dark:text-slate-300">{product.description}</p>
@@ -70,6 +72,7 @@ export function ProductDetailPage() {
             <TrustScoreBadge score={trustQuery.data.score} />
           </div>
         )}
+        </div>
       </Card>
 
       <Card className="p-6">

@@ -1,6 +1,36 @@
+import { useState } from 'react'
 import { Badge } from './ui'
 import { titleCase } from '../lib/format'
 import type { DisputeStatus, OrderStatus } from '../types'
+
+/** Product photo with a graceful fallback (missing image_url, or a URL
+ * that fails to load) instead of a broken-image icon — a plain tinted
+ * box with a picture glyph reads as "no photo yet," not "this is broken." */
+export function ProductImage({ src, alt, className = '' }: { src: string | null; alt: string; className?: string }) {
+  const [failed, setFailed] = useState(false)
+
+  if (!src || failed) {
+    return (
+      <div className={`flex items-center justify-center bg-slate-100 text-slate-300 dark:bg-slate-800 dark:text-slate-600 ${className}`}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-8 w-8">
+          <rect x="3" y="3" width="18" height="18" rx="2" />
+          <circle cx="8.5" cy="8.5" r="1.5" />
+          <path d="M21 15l-5-5L5 21" />
+        </svg>
+      </div>
+    )
+  }
+
+  return (
+    <img
+      src={src}
+      alt={alt}
+      loading="lazy"
+      onError={() => setFailed(true)}
+      className={`object-cover ${className}`}
+    />
+  )
+}
 
 export function TrustScoreBadge({ score }: { score: number | string }) {
   const value = typeof score === 'string' ? Number(score) : score
