@@ -8,7 +8,7 @@ wasn't in the schema until now. Both additive, nullable-or-defaulted
 columns; nothing existing changes shape.
 
 Revision ID: 0004_add_location_fields
-Revises: 0003_add_buyer_onchain_registered
+Revises: 0003_buyer_onchain_registered
 Create Date: 2026-08-14
 """
 
@@ -18,7 +18,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "0004_add_location_fields"
-down_revision: Union[str, None] = "0003_add_buyer_onchain_registered"
+down_revision: Union[str, None] = "0003_buyer_onchain_registered"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
