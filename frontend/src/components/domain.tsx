@@ -5,7 +5,10 @@ import type { DisputeStatus, OrderStatus } from '../types'
 
 /** Product photo with a graceful fallback (missing image_url, or a URL
  * that fails to load) instead of a broken-image icon — a plain tinted
- * box with a picture glyph reads as "no photo yet," not "this is broken." */
+ * box with a picture glyph reads as "no photo yet," not "this is broken."
+ * Uses object-contain on a neutral card background (like Flipkart/Amazon
+ * product tiles) so the whole product is always visible — object-cover
+ * was cropping edges off tightly-framed product shots. */
 export function ProductImage({ src, alt, className = '' }: { src: string | null; alt: string; className?: string }) {
   const [failed, setFailed] = useState(false)
 
@@ -22,13 +25,15 @@ export function ProductImage({ src, alt, className = '' }: { src: string | null;
   }
 
   return (
-    <img
-      src={src}
-      alt={alt}
-      loading="lazy"
-      onError={() => setFailed(true)}
-      className={`object-cover ${className}`}
-    />
+    <div className={`flex items-center justify-center bg-white p-3 dark:bg-slate-800/40 ${className}`}>
+      <img
+        src={src}
+        alt={alt}
+        loading="lazy"
+        onError={() => setFailed(true)}
+        className="h-full w-full object-contain"
+      />
+    </div>
   )
 }
 

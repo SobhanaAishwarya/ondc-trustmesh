@@ -46,7 +46,7 @@ export function ProductsBrowsePage() {
         {data?.items.map((product) => (
           <Link key={product.id} to={`/buyer/products/${product.id}`}>
             <Card className="h-full overflow-hidden p-0 transition hover:shadow-md">
-              <ProductImage src={product.image_url} alt={product.name} className="h-40 w-full" />
+              <ProductImage src={product.image_url} alt={product.name} className="h-48 w-full" />
               <div className="p-4">
                 <p className="text-xs font-medium text-brand-blue">{product.category}</p>
                 <h3 className="mt-1 font-semibold">{product.name}</h3>

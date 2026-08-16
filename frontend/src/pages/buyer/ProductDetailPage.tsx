@@ -52,7 +52,7 @@ export function ProductDetailPage() {
   return (
     <div className="mx-auto grid max-w-4xl gap-6 md:grid-cols-2">
       <Card className="overflow-hidden p-0">
-        <ProductImage src={product.image_url} alt={product.name} className="h-64 w-full" />
+        <ProductImage src={product.image_url} alt={product.name} className="h-80 w-full" />
         <div className="p-6">
         <p className="text-xs font-medium text-brand-blue">{product.category}</p>
         <h1 className="mt-1 text-2xl font-semibold">{product.name}</h1>

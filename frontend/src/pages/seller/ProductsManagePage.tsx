@@ -104,7 +104,7 @@ function ProductCard({ product }: { product: Product }) {
 
   return (
     <Card className="overflow-hidden p-0">
-      <ProductImage src={product.image_url} alt={product.name} className="h-32 w-full" />
+      <ProductImage src={product.image_url} alt={product.name} className="h-40 w-full" />
       <div className="p-4">
       <div className="flex items-start justify-between">
         <div>

@@ -26,7 +26,7 @@ export function WishlistPage() {
         {data?.map((item) => (
           <Card key={item.id} className="overflow-hidden p-0">
             <Link to={`/buyer/products/${item.product.id}`}>
-              <ProductImage src={item.product.image_url} alt={item.product.name} className="h-32 w-full" />
+              <ProductImage src={item.product.image_url} alt={item.product.name} className="h-48 w-full" />
               <div className="p-4">
                 <p className="text-xs font-medium text-brand-blue">{item.product.category}</p>
                 <h3 className="mt-1 font-semibold hover:underline">{item.product.name}</h3>

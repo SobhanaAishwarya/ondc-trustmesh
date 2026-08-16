@@ -38,7 +38,7 @@ export function RecommendationsPage() {
             onClick={() => !item.was_clicked && clickMutation.mutate(item.id)}
           >
             <Card className="h-full overflow-hidden p-0 transition hover:shadow-md">
-              <ProductImage src={item.product.image_url} alt={item.product.name} className="h-32 w-full" />
+              <ProductImage src={item.product.image_url} alt={item.product.name} className="h-48 w-full" />
               <div className="p-4">
                 <div className="flex items-center justify-between">
                   <Badge tone="info">{ALGORITHM_LABEL[item.algorithm] ?? item.algorithm}</Badge>
