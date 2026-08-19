@@ -1,11 +1,15 @@
-"""Thin Redis wrapper for hot-read caching and refresh-token revocation.
+"""Thin Redis wrapper for hot-read caching, refresh-token revocation, and
+wallet sign-in nonces.
 
 Fails open, the same way `app/services/blockchain_service.py` no-ops when
 the chain isn't reachable: if Redis is down or `REDIS_URL` points nowhere,
-every function here becomes a silent no-op (cache misses always, tokens
+most functions here become a silent no-op (cache misses always, tokens
 are never "found revoked") rather than raising. That's a deliberate
 tradeoff, not an oversight — see the docstring on `blocklist_contains`
-for the one place it actually matters.
+for the one place it actually matters. The `wallet_nonce_*` functions
+below are the one deliberate exception: they fail *closed*
+(`NonceStoreUnavailable`), since a nonce is the actual security check for
+wallet sign-in, not an optional side effect.
 
 The client is connected lazily on first use and cached at module scope —
 tests never touch a real Redis instance (`get_settings().redis_url`
@@ -120,3 +124,39 @@ def blocklist_contains(jti: str) -> bool:
         return client.exists(f"revoked_jti:{jti}") == 1
     except redis.RedisError:
         return False
+
+
+class NonceStoreUnavailable(Exception):
+    """Raised instead of failing open. A wallet-auth nonce is the actual
+    security check for that flow, not an optional side effect like caching
+    or revocation above — an unreachable Redis must stop wallet sign-in
+    with a clear error, not silently accept an unverifiable signature."""
+
+
+def wallet_nonce_set(address: str, nonce: str, ttl_seconds: int) -> None:
+    client = get_redis()
+    if client is None:
+        raise NonceStoreUnavailable("Redis is required for wallet sign-in and is not reachable")
+    try:
+        client.setex(f"wallet_nonce:{address.lower()}", max(1, ttl_seconds), nonce)
+    except redis.RedisError as exc:
+        raise NonceStoreUnavailable("Redis is required for wallet sign-in and is not reachable") from exc
+
+
+def wallet_nonce_pop(address: str) -> str | None:
+    """Single-use: read-then-delete. A get+delete race could in principle
+    let a second signature over the same nonce through in a narrow window,
+    but that window only matters against a nonce that's about to expire
+    anyway (TTL is minutes, not hours) — an accepted tradeoff rather than
+    reaching for a Lua script/transaction for a demo-scale threat model."""
+    client = get_redis()
+    if client is None:
+        raise NonceStoreUnavailable("Redis is required for wallet sign-in and is not reachable")
+    key = f"wallet_nonce:{address.lower()}"
+    try:
+        value = client.get(key)
+        if value is not None:
+            client.delete(key)
+        return value
+    except redis.RedisError as exc:
+        raise NonceStoreUnavailable("Redis is required for wallet sign-in and is not reachable") from exc

@@ -13,6 +13,7 @@ needs a live chain — this file is the one place that genuinely does.
 
 import os
 import uuid
+from decimal import Decimal
 from unittest.mock import MagicMock
 
 import pytest
@@ -23,6 +24,7 @@ from app.blockchain import client
 from app.blockchain.client import BlockchainUnavailable
 from app.core.config import Settings
 from app.models.buyer import Buyer
+from app.models.order import Order
 from app.models.seller import Seller
 from app.services import blockchain_service
 
@@ -176,3 +178,145 @@ def test_register_buyer_onchain_is_idempotent():
 
     assert result is None
     db.add.assert_not_called()
+
+
+# --- EscrowDispute.sol — real fund locking/release/split against the live
+# chain above, not mocked. See app/blockchain/client.py's EscrowDispute
+# section docstring for the relayer/wei-scaling conventions these rely on.
+
+
+def _registered_seller() -> Seller:
+    address = _random_address()
+    client.register_participant(address)
+    return Seller(
+        id=uuid.uuid4(), user_id=uuid.uuid4(), business_name="Bridge Test Shop",
+        wallet_address=address, is_onchain_registered=True,
+    )
+
+
+def _order_for(seller: Seller, amount: str = "1000.00") -> Order:
+    return Order(
+        id=uuid.uuid4(), buyer_id=uuid.uuid4(), seller_id=seller.id,
+        product_id=uuid.uuid4(), quantity=1, amount=Decimal(amount),
+    )
+
+
+def test_create_escrow_order_locks_the_amount_on_chain():
+    seller = _registered_seller()
+    receipt = client.create_escrow_order(seller.wallet_address, amount_wei=249900)
+
+    assert receipt["status"] == 1
+    assert receipt["onchain_order_id"] is not None
+
+    contract = client.get_escrow_contract()
+    onchain_order = contract.functions.orders(receipt["onchain_order_id"]).call()
+    assert onchain_order[1] == seller.wallet_address  # seller
+    assert onchain_order[2] == 249900  # amount
+    assert onchain_order[3] == 0  # Status.Created
+
+
+def test_confirm_escrow_delivery_pays_the_seller():
+    seller = _registered_seller()
+    receipt = client.create_escrow_order(seller.wallet_address, amount_wei=100_000)
+    order_id = receipt["onchain_order_id"]
+
+    w3 = client.get_web3()
+    balance_before = w3.eth.get_balance(seller.wallet_address)
+
+    confirm_receipt = client.confirm_escrow_delivery(order_id)
+
+    assert confirm_receipt["status"] == 1
+    assert w3.eth.get_balance(seller.wallet_address) - balance_before == 100_000
+    contract = client.get_escrow_contract()
+    assert contract.functions.orders(order_id).call()[3] == 1  # Status.Delivered
+
+
+def test_raise_and_autoresolve_escrow_dispute_splits_by_trust_score():
+    seller = _registered_seller()
+    order_id = client.create_escrow_order(seller.wallet_address, amount_wei=100_000)["onchain_order_id"]
+
+    dispute_receipt = client.raise_escrow_dispute(order_id, "item_not_received")
+    assert dispute_receipt["status"] == 1
+    contract = client.get_escrow_contract()
+    assert contract.functions.orders(order_id).call()[3] == 2  # Status.Disputed
+
+    resolve_receipt = client.autoresolve_escrow(order_id)
+    assert resolve_receipt["status"] == 1
+    assert contract.functions.orders(order_id).call()[3] == 3  # Status.Resolved
+
+
+def test_arbitrator_resolve_escrow_dispute_uses_the_explicit_split():
+    seller = _registered_seller()
+    order_id = client.create_escrow_order(seller.wallet_address, amount_wei=100_000)["onchain_order_id"]
+    client.raise_escrow_dispute(order_id, "damaged_in_transit")
+
+    w3 = client.get_web3()
+    balance_before = w3.eth.get_balance(seller.wallet_address)
+
+    client.arbitrate_escrow(order_id, seller_share_bps=7000)
+
+    assert w3.eth.get_balance(seller.wallet_address) - balance_before == 70_000
+
+
+def test_create_escrow_order_service_writes_onchain_fields_onto_the_order():
+    seller = _registered_seller()
+    order = _order_for(seller, "2499.00")
+    db = MagicMock()
+
+    result = blockchain_service.create_escrow_order(db, order, seller)
+
+    assert result is not None
+    assert order.onchain_order_id is not None
+    assert order.escrow_tx_hash == result.tx_hash
+    db.add.assert_called_once()
+
+
+def test_create_escrow_order_service_is_noop_for_an_unregistered_seller():
+    seller = Seller(
+        id=uuid.uuid4(), user_id=uuid.uuid4(), business_name="Unregistered Shop",
+        wallet_address=_random_address(), is_onchain_registered=False,
+    )
+    order = _order_for(seller)
+    db = MagicMock()
+
+    result = blockchain_service.create_escrow_order(db, order, seller)
+
+    assert result is None
+    assert order.onchain_order_id is None
+    db.add.assert_not_called()
+
+
+def test_escrow_service_lifecycle_end_to_end_via_the_service_layer():
+    """Mirrors what orders.py/disputes.py actually call: create -> confirm
+    for a happy-path order, and separately create -> raise -> autoresolve
+    for a disputed one — proving the service-layer wrappers (not just the
+    raw client functions above) drive the real contract correctly."""
+    seller = _registered_seller()
+    db = MagicMock()
+
+    happy_order = _order_for(seller, "800.00")
+    assert blockchain_service.create_escrow_order(db, happy_order, seller) is not None
+    assert blockchain_service.confirm_escrow_delivery(db, happy_order) is not None
+
+    disputed_order = _order_for(seller, "300.00")
+    assert blockchain_service.create_escrow_order(db, disputed_order, seller) is not None
+    assert blockchain_service.raise_escrow_dispute(db, disputed_order, "item_not_received") is not None
+    result = blockchain_service.resolve_escrow_dispute(db, disputed_order, seller_share_bps=4000, arbitrated=True)
+    assert result is not None
+
+    contract = client.get_escrow_contract()
+    assert contract.functions.orders(happy_order.onchain_order_id).call()[3] == 1  # Delivered
+    assert contract.functions.orders(disputed_order.onchain_order_id).call()[3] == 3  # Resolved
+
+
+def test_confirm_escrow_delivery_service_is_noop_without_an_onchain_order():
+    """An order that was never locked in escrow (e.g. the seller wasn't
+    on-chain-registered at creation time) has no onchain_order_id — nothing
+    to confirm, so this must stay a safe no-op rather than erroring."""
+    seller = _registered_seller()
+    order = _order_for(seller)
+    db = MagicMock()
+
+    result = blockchain_service.confirm_escrow_delivery(db, order)
+
+    assert result is None

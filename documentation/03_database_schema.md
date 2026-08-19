@@ -46,6 +46,13 @@ signal (city-level haversine distance vs. delivery radius) — the
 paper's location + delivery-capability vendor-matchmaking idea, without
 needing precise GPS.
 
+`wallet_verified` (added by `0005_wallet_verified.py`) tracks whether
+`wallet_address` was proven via a signed challenge (`POST /auth/wallet/
+link`) rather than just typed in — the two columns can never disagree
+because `wallet_address` is only ever written alongside setting this to
+`true` in that same code path. `PATCH /auth/me` can no longer set
+`wallet_address` at all.
+
 ## products
 
 Seller's catalog. `is_active` (not row deletion) is how `DELETE
@@ -107,9 +114,12 @@ them into `score` is `trust_service.compute_trust_score()`, documented in
 `evidence_buyer_score`/`evidence_seller_score` are separate columns
 (not one shared "evidence" field) because each party submits their own
 independently — `dispute_service.resolve()` only fires once both are
-present. `resolved_by` (`'ai_auto'` vs `'arbitrator'`) records *how* a
-dispute was settled, not just what the outcome was — meaningfully
-different provenance for an audit.
+present. `resolved_by` (`'rule_auto'` vs `'arbitrator'` vs `'auto_return'`)
+records *how* a dispute was settled, not just what the outcome was —
+meaningfully different provenance for an audit. `'rule_auto'` is a fixed
+weighted formula (`dispute_service.resolve()`), not a learned model — named
+`rule_auto` rather than `ai_auto` so the column doesn't overstate what
+actually decided the split.
 
 ## recommendations
 

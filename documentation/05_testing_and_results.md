@@ -13,33 +13,40 @@ model training), the exact command is given so it can be reproduced.
 | ML model quality | pytest + `scripts/train_fraud_model.py` | `backend/tests/test_ml_fraud_model.py` | Training pipeline sanity (regression floor), save/load round-trip, high-risk-scores-above-low-risk |
 | Security | pytest + bandit | `backend/tests/test_security_review.py` | Password never leaked, no email enumeration, JWT tampering/`alg:none` rejected, SQL-injection-shaped input handled safely, forged role claims rejected |
 | Blockchain contracts | Hardhat + Chai/Mocha | `test/*.test.js` | `TrustScore.sol`, `EscrowDispute.sol` — registration, score deltas/clamping, access control, escrow release, dispute resolution, arbitration |
-| Blockchain bridge | pytest, against a **real local chain** | `backend/tests/test_blockchain_bridge.py` | Web3.py client against actual deployed contracts — not mocked |
+| Blockchain bridge | pytest, against a **real local chain** | `backend/tests/test_blockchain_bridge.py` | Web3.py client against actual deployed contracts, including the escrow order/delivery/dispute/arbitration lifecycle — not mocked |
+| Frontend unit / component | Vitest + Testing Library | `frontend/src/**/*.test.{ts,tsx}` | Formatting utilities, badge/status components, `ProductImage` fallback behavior, an end-to-end `LoginPage` flow (mocked API layer, real routing/auth-context), and `WalletConnectButton`'s connect/sign/error paths against a stubbed EIP-1193 provider |
 | Frontend build | `tsc -b` | `frontend/` (`npm run build`) | Full-app type-check across ~45 files |
 | End-to-end | Playwright, against a **real running backend** | `frontend/e2e/purchase-flow.spec.ts` | Seller signup → add product → buyer signup → browse → purchase, asserting on rendered UI state, zero console errors |
 | Load / performance | Locust, against a **real running backend** | `backend/loadtest/` | Concurrent read/write latency under load |
 
-## Backend: 137 tests — 129 passing, 8 skipped without a local chain
+## Backend: 153 tests — 137 passing, 16 skipped without a local chain
 
 ```
 $ pytest -q
 ............................................................................
 ............................................................................
-..............................ssssssss...............
-129 passed, 8 skipped in ~47s
+....................................ssssssssssssssss...............
+137 passed, 16 skipped in ~53s
 ```
 
 Also run against a live local chain (`npx hardhat node` + `npx hardhat run
-scripts/deploy.js --network localhost`) — all 137 pass, 0 skipped, the
-same suite exercising real transactions instead of skipping. See
-"Blockchain" below for a manual, beyond-the-test-suite run against that
-same live chain.
+scripts/deploy.js --network localhost`) — all 153 pass, 0 skipped, the
+same suite exercising real transactions instead of skipping (verified: a
+seller receives real released escrow funds, a rule-based auto-resolve
+splits real escrow funds by live on-chain trust scores, and an arbitrator
+override pays out an exact specified split). See "Blockchain" below for a
+manual, beyond-the-test-suite run against that same live chain.
 
 No Docker, Postgres, or blockchain node required for the 129 that run —
 `tests/conftest.py` runs against an in-memory SQLite database (see
-`backend/README.md` for why the ORM models support both dialects). The 8
+`backend/README.md` for why the ORM models support both dialects). The 16
 skips are `tests/test_blockchain_bridge.py`, which needs a real local
-chain (`npx hardhat node`) to talk to; see "Blockchain bridge" below for
-that suite run against one. Redis-backed behavior (`tests/test_cache.py`)
+chain (`npx hardhat node`) to talk to — 8 for `TrustScore.sol` (register/
+score/event round-trips) and 8 for `EscrowDispute.sol` (order creation,
+delivery release, dispute raise/auto-resolve/arbitration, both at the raw
+client level and through the `blockchain_service` wrappers `orders.py`/
+`disputes.py` actually call); see "Blockchain bridge" below for that suite
+run against one. Redis-backed behavior (`tests/test_cache.py`)
 is verified the same way the DB is — against an in-memory fake
 (`conftest.py`'s `fake_redis` fixture), not a live Redis instance —
 proving the actual read-through/invalidation/revocation logic, not just
@@ -58,7 +65,7 @@ evidence → auto-resolve, plus arbitration), wishlist, the admin module,
 config normalization, the dedicated security file, per-route rate
 limiting, and the global exception-handler error envelope.
 
-## Blockchain: 10 contract tests + 8 bridge tests, all passing against a live chain
+## Blockchain: 10 contract tests + 16 bridge tests, all passing against a live chain
 
 ```
 $ npx hardhat test
@@ -81,7 +88,7 @@ $ npx hardhat test
 $ npx hardhat node                                            # separate terminal
 $ npx hardhat run scripts/deploy.js --network localhost
 $ pytest backend/tests/test_blockchain_bridge.py -v
-8 passed
+16 passed
 ```
 
 The bridge tests exercise both `app/blockchain/client.py` (the raw Web3.py
@@ -122,6 +129,99 @@ to the caller. Fixed by validating the format (`0x` + 40 hex chars) in
 address is rejected with a `422` at the door instead — regression test:
 `test_updating_profile_rejects_a_malformed_wallet_address`
 (`tests/test_auth_api.py`), using the exact address that triggered it.
+
+### Escrow wiring (closing the "contract exists but nobody calls it" gap)
+
+An external audit against the Infosys brief and IEEE paper flagged that
+`EscrowDispute.sol` — genuinely well-built, with real fund custody and a
+passing test suite — had zero call sites anywhere in the backend. Every
+order placed through the live app was 100% Postgres state; the contract
+that actually holds funds was orphaned code.
+
+Closed by wiring `app/blockchain/client.py` (5 new functions:
+`create_escrow_order`, `confirm_escrow_delivery`, `raise_escrow_dispute`,
+`autoresolve_escrow`, `arbitrate_escrow`) and `app/services/
+blockchain_service.py` (matching best-effort wrappers, same fail-open
+pattern as the existing trust-score calls) into the real order/dispute
+flow: `POST /orders` locks the order amount in escrow, delivery
+confirmation releases it to the seller, and dispute raise/auto-resolve/
+arbitrate drive the contract's real dispute-settlement path. `order.
+onchain_order_id`/`escrow_tx_hash` and `dispute.onchain_tx_hash` — schema
+columns that existed but were permanently `NULL` — now actually get
+written.
+
+Two honesty notes, not smoothed over:
+
+- **The operator account is the on-chain buyer for every order** (there's
+  no client-side wallet signing yet — see the relayer note in `backend/
+  README.md`'s blockchain section), so escrow demonstrates the contract's
+  real fund-custody/settlement mechanics end to end, just under one
+  relayer identity rather than two independently-signing parties.
+- **A self-service return (always post-delivery) has no on-chain
+  settlement call** — `EscrowDispute.sol`'s `raiseDispute` only accepts a
+  pre-delivery order, and `confirmDelivery` already paid the seller in
+  full by the time a return could be requested. This is the contract's
+  real, documented lifecycle limitation surfacing correctly, not a bug —
+  see the comment at the return-flow's call site in `orders.py`.
+
+Verified against a live local chain, not just unit-tested in isolation: a
+real order's amount was locked, released to the seller on delivery with
+an exact balance-delta check, and — separately — disputed, auto-resolved
+by live on-chain trust scores, and arbitrator-resolved with an exact
+specified split, all with real ETH balance changes observed on-chain. 8
+new tests in `test_blockchain_bridge.py` (4 client-level, 4 service-level)
+lock this in as a permanent regression check rather than a one-time
+manual verification.
+
+### Wallet sign-in (closing the "not actually decentralized identity" gap)
+
+The same external audit flagged that "decentralized identity" was
+password+JWT with a regex-validated `wallet_address` string — no
+signature, no `ecrecover`, no wallet library in the frontend at all.
+Setting a wallet was indistinguishable from typing a random 42-character
+string into a form.
+
+Closed with a standard sign-in-with-Ethereum-style challenge/response, no
+new heavy dependency (the frontend talks to the injected EIP-1193
+provider — `window.ethereum` — directly for the two calls it needs,
+`eth_requestAccounts` and `personal_sign`):
+
+1. `POST /auth/wallet/nonce` issues a one-time, single-use challenge
+   message for a given address (`app/core/cache.py`'s new
+   `wallet_nonce_set`/`wallet_nonce_pop`, Redis-backed with a 5-minute
+   TTL — and, unlike every other function in that module, these fail
+   *closed*: an unreachable Redis returns a `503`, never silently skips
+   the check).
+2. The wallet signs that exact message (`personal_sign` — no transaction,
+   no gas).
+3. `POST /auth/wallet/link` (authenticated) or `POST /auth/wallet/login`
+   (not) recovers the signing address via `eth_account.Account.
+   recover_message` and checks it matches the claim. Link sets a new
+   `wallet_verified` column (`0005_wallet_verified.py`) — `wallet_address`
+   can no longer be set as plain text via `PATCH /auth/me` at all, closing
+   the old gap directly rather than leaving both paths open. Login issues
+   the same real JWTs the password flow does, once a wallet is verified —
+   password-free sign-in, not just a linked address.
+4. On-chain registration (`register_seller_onchain`/`register_buyer_
+   onchain`) now gates on `wallet_verified`, not just `wallet_address`
+   being non-null, so an unproven address can never trigger a real
+   blockchain write under someone else's identity.
+
+Honest scope boundary, not smoothed over: this proves the *caller* holds
+the private key for an address (real cryptographic identity for
+authentication) — it does not make the on-chain contract calls
+themselves user-signed. Those still go through the backend's operator
+key, same relayer pattern as before. "Decentralized identity for
+login" and "the user signs their own transactions" are different
+claims; only the first is built.
+
+8 new backend tests (`test_wallet_auth.py`) use real `eth_account`
+keypairs and real signatures throughout — including a forged-signature
+rejection, a nonce-replay rejection, a wallet-already-linked-elsewhere
+conflict, and a fail-closed check with Redis genuinely unreachable — plus
+3 new frontend tests (`WalletConnectButton.test.tsx`) against a stubbed
+wallet provider covering the happy path, no-extension-installed, and a
+rejected-signature error.
 
 ### Hardening pass (post-launch gap closure)
 

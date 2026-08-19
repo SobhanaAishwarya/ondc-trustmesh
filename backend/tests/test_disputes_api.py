@@ -101,7 +101,7 @@ def test_both_sides_submitting_evidence_triggers_auto_resolution(client):
     assert response.status_code == 200
     body = response.json()
     assert body["status"] == "auto_resolved"
-    assert body["resolved_by"] == "ai_auto"
+    assert body["resolved_by"] == "rule_auto"
     assert body["resolution_outcome"] is not None
     assert 0 <= body["seller_share_bps"] <= 10000
 

@@ -18,8 +18,9 @@ from app.models.seller import Seller
 from app.models.user import UserRole
 from app.schemas.common import Page
 from app.schemas.dispute import DisputeArbitrate, DisputeCreate, DisputeEvidenceSubmit, DisputeRead
-from app.services.blockchain_service import record_trust_event
+from app.services.blockchain_service import raise_escrow_dispute, record_trust_event, resolve_escrow_dispute
 from app.services.dispute_service import ephemeral_buyer_trust, resolve
+from app.services.transaction_service import mark_refunded_if_buyer_won_any_share
 from app.services.trust_service import recompute_trust_score
 
 router = APIRouter(prefix="/disputes", tags=["disputes"])
@@ -72,6 +73,9 @@ def raise_dispute(payload: DisputeCreate, user: CurrentUser, db: DbSession) -> D
 
     recompute_trust_score(db, seller)
     record_trust_event(db, seller, "dispute_raised")
+    escrow_hash = raise_escrow_dispute(db, order, payload.reason.value)  # no-op / honest failure, see its docstring
+    if escrow_hash is not None:
+        dispute.onchain_tx_hash = escrow_hash.tx_hash
     db.commit()
     db.refresh(dispute)
     return DisputeRead.model_validate(dispute)
@@ -118,11 +122,15 @@ def arbitrate_dispute(dispute_id: uuid.UUID, payload: DisputeArbitrate, admin: C
     dispute.status = DisputeStatus.arbitrated
     dispute.resolved_at = datetime.now(timezone.utc)
     order.status = OrderStatus.resolved
+    mark_refunded_if_buyer_won_any_share(db, order.id, payload.seller_share_bps)
 
     seller = db.get(Seller, order.seller_id)
     recompute_trust_score(db, seller)
     event = "dispute_resolved_seller" if payload.seller_share_bps >= SELLER_WIN_THRESHOLD_BPS else "dispute_resolved_buyer"
     record_trust_event(db, seller, event)
+    escrow_hash = resolve_escrow_dispute(db, order, payload.seller_share_bps, arbitrated=True)
+    if escrow_hash is not None:
+        dispute.onchain_tx_hash = escrow_hash.tx_hash
 
     db.commit()
     db.refresh(dispute)
@@ -175,13 +183,17 @@ def _auto_resolve(db: DbSession, dispute: Dispute, order: Order, buyer: Buyer, s
     )
     dispute.resolution_outcome = result["outcome"]
     dispute.seller_share_bps = result["seller_share_bps"]
-    dispute.resolved_by = "ai_auto"
+    dispute.resolved_by = "rule_auto"
     dispute.status = DisputeStatus.auto_resolved
     dispute.resolved_at = datetime.now(timezone.utc)
     order.status = OrderStatus.resolved
+    mark_refunded_if_buyer_won_any_share(db, order.id, result["seller_share_bps"])
     recompute_trust_score(db, seller)
     event = "dispute_resolved_seller" if result["seller_share_bps"] >= SELLER_WIN_THRESHOLD_BPS else "dispute_resolved_buyer"
     record_trust_event(db, seller, event)
+    escrow_hash = resolve_escrow_dispute(db, order, result["seller_share_bps"], arbitrated=False)
+    if escrow_hash is not None:
+        dispute.onchain_tx_hash = escrow_hash.tx_hash
 
 
 def _get_dispute_or_404(db: DbSession, dispute_id: uuid.UUID) -> Dispute:

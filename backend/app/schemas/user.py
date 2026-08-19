@@ -50,6 +50,7 @@ class BuyerProfileRead(BaseModel):
 
     id: uuid.UUID
     wallet_address: str | None
+    wallet_verified: bool
     price_sensitivity: Decimal
     preferred_categories: list[str]
     city: str | None
@@ -63,6 +64,7 @@ class SellerProfileRead(BaseModel):
     id: uuid.UUID
     business_name: str
     wallet_address: str | None
+    wallet_verified: bool
     gstin: str | None
     city: str | None
     delivery_radius_km: int
@@ -115,6 +117,23 @@ class TokenResponse(BaseModel):
 
 class RefreshRequest(BaseModel):
     refresh_token: str
+
+
+class WalletNonceRequest(BaseModel):
+    address: str = Field(pattern=WALLET_ADDRESS_PATTERN.pattern)
+
+
+class WalletNonceResponse(BaseModel):
+    message: str
+
+
+class WalletVerifyRequest(BaseModel):
+    """address + the signature MetaMask (or any EIP-1191 wallet) produced
+    by signing the exact `message` a prior POST /auth/wallet/nonce call
+    returned."""
+
+    address: str = Field(pattern=WALLET_ADDRESS_PATTERN.pattern)
+    signature: str = Field(min_length=1)
 
 
 class ProfileUpdate(BaseModel):

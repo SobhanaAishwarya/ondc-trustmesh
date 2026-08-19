@@ -18,6 +18,10 @@ class Seller(Base):
     )
     business_name: Mapped[str] = mapped_column(String(255), nullable=False)
     wallet_address: Mapped[str | None] = mapped_column(String(42), index=True)
+    # True only once ownership was proven by a signature over a one-time
+    # nonce (POST /auth/wallet/link) — set alongside wallet_address so the
+    # two can never disagree. See alembic/versions/0005_wallet_verified.py.
+    wallet_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     gstin: Mapped[str | None] = mapped_column(String(15))
     seller_age_days: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     # One of app.core.geo.CITY_NAMES, or None if unset — feeds the

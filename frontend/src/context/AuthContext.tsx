@@ -8,6 +8,7 @@ interface AuthContextValue {
   isLoading: boolean
   isAuthenticated: boolean
   login: (email: string, password: string) => Promise<Me>
+  loginWithWallet: (address: string, signature: string) => Promise<Me>
   registerBuyer: (input: authApi.BuyerRegisterInput) => Promise<Me>
   registerSeller: (input: authApi.SellerRegisterInput) => Promise<Me>
   logout: () => void
@@ -47,6 +48,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return me
   }, [])
 
+  const loginWithWallet = useCallback(async (address: string, signature: string) => {
+    const tokens = await authApi.walletLogin(address, signature)
+    tokenStore.set(tokens.access_token, tokens.refresh_token)
+    const me = await authApi.fetchMe()
+    setUser(me)
+    return me
+  }, [])
+
   const registerBuyer = useCallback(async (input: authApi.BuyerRegisterInput) => {
     const tokens = await authApi.registerBuyer(input)
     tokenStore.set(tokens.access_token, tokens.refresh_token)
@@ -74,7 +83,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ user, isLoading, isAuthenticated: user !== null, login, registerBuyer, registerSeller, logout, refreshUser }}
+      value={{
+        user,
+        isLoading,
+        isAuthenticated: user !== null,
+        login,
+        loginWithWallet,
+        registerBuyer,
+        registerSeller,
+        logout,
+        refreshUser,
+      }}
     >
       {children}
     </AuthContext.Provider>

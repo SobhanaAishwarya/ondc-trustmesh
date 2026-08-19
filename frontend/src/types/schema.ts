@@ -114,6 +114,57 @@ export interface paths {
         patch: operations["update_me_api_v1_auth_me_patch"];
         trace?: never;
     };
+    "/api/v1/auth/wallet/nonce": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Wallet Nonce */
+        post: operations["wallet_nonce_api_v1_auth_wallet_nonce_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/wallet/link": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Link Wallet */
+        post: operations["link_wallet_api_v1_auth_wallet_link_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/wallet/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Wallet Login */
+        post: operations["wallet_login_api_v1_auth_wallet_login_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/products": {
         parameters: {
             query?: never;
@@ -756,6 +807,8 @@ export interface components {
             id: string;
             /** Wallet Address */
             wallet_address: string | null;
+            /** Wallet Verified */
+            wallet_verified: boolean;
             /** Price Sensitivity */
             price_sensitivity: string;
             /** Preferred Categories */
@@ -1331,6 +1384,8 @@ export interface components {
             business_name: string;
             /** Wallet Address */
             wallet_address: string | null;
+            /** Wallet Verified */
+            wallet_verified: boolean;
             /** Gstin */
             gstin: string | null;
             /** City */
@@ -1492,6 +1547,28 @@ export interface components {
             input?: unknown;
             /** Context */
             ctx?: Record<string, never>;
+        };
+        /** WalletNonceRequest */
+        WalletNonceRequest: {
+            /** Address */
+            address: string;
+        };
+        /** WalletNonceResponse */
+        WalletNonceResponse: {
+            /** Message */
+            message: string;
+        };
+        /**
+         * WalletVerifyRequest
+         * @description address + the signature MetaMask (or any EIP-1191 wallet) produced
+         *     by signing the exact `message` a prior POST /auth/wallet/nonce call
+         *     returned.
+         */
+        WalletVerifyRequest: {
+            /** Address */
+            address: string;
+            /** Signature */
+            signature: string;
         };
         /** WishlistItemCreate */
         WishlistItemCreate: {
@@ -1727,6 +1804,105 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    wallet_nonce_api_v1_auth_wallet_nonce_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WalletNonceRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WalletNonceResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    link_wallet_api_v1_auth_wallet_link_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WalletVerifyRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    wallet_login_api_v1_auth_wallet_login_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WalletVerifyRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TokenResponse"];
                 };
             };
             /** @description Validation Error */
