@@ -38,7 +38,7 @@ describes intent and two places that implement it identically.
 | `app/schemas/user.py`, `product.py`, `order.py` | Pydantic request/response models. Separate from the ORM models on purpose — request/response shape and DB shape drift over time and shouldn't be forced to match. |
 | `app/schemas/common.py` | `Page[T]` — the generic paginated-list envelope (`items`, `total`, `limit`, `offset`) used by every list endpoint. |
 | `app/api/deps.py` | `get_current_user`/`require_role(...)` for auth, plus `get_current_buyer`/`get_current_seller` which resolve the role-specific profile row (`Buyer`/`Seller`) for the authenticated user — every product/order endpoint that needs "the caller's own X" depends on these. |
-| `app/api/v1/endpoints/auth.py` | `/register/buyer`, `/register/seller`, `/login`, `/me`, `/refresh` (rotates + revokes the used refresh token), `/logout` (revokes on demand). |
+| `app/api/v1/endpoints/auth.py` | `/register/buyer`, `/register/seller`, `/login`, `/me`, `/refresh` (rotates + revokes the used refresh token), `/logout` (revokes on demand), and `/wallet/nonce`+`/wallet/link`+`/wallet/login` — decentralized identity via a signed challenge (`eth_account.Account.recover_message`), not a pasted address. |
 | `app/api/v1/endpoints/products.py` | Seller-owned catalog CRUD + public search/browse. Listing and detail reads are Redis-cached (short TTL, invalidated on write). |
 | `app/api/v1/endpoints/orders.py` | Placing orders (which also creates the Transaction), tracking, seller-driven status transitions, and `POST /{id}/return` — the self-service return/refund flow (return-window + condition check, auto-refund or falls back to a contested dispute). |
 | `app/ml/features.py` | The fraud model's feature schema — one definition shared by training and live scoring so they can't drift apart (train/serve skew). |
@@ -47,6 +47,7 @@ describes intent and two places that implement it identically.
 | `app/services/fraud_service.py` | Scores one transaction: pulls live features from the DB, calls the model, writes `Transaction.fraud_probability`/`is_fraud_flagged`, and records a `FraudLog` with lightweight explainability. |
 | `app/api/v1/endpoints/fraud.py` | `/fraud/alerts` (role-scoped) and the admin fraud-log review endpoint. |
 | `scripts/train_fraud_model.py` | Regenerates the training set and the model artifact, prints evaluation metrics. Run this after changing `features.py` or `synthetic_data.py`. |
+| `scripts/evaluate_recommendation_ctr.py` | Self-contained synthetic CTR backtest for the real `recommendation_service.get_recommendations()` — see its docstring for what it does and doesn't prove. |
 | `app/services/trust_service.py` | Trust-score computation — the multi-factor formula from `schema.sql`'s `trust_scores` table (completion rate, transaction success, ratings, complaints, refund ratio, late delivery, fraud probability, disputes, seller age), distinct from the simpler on-chain event-delta model in `contracts/TrustScore.sol`. Persists a time-series row and syncs `Seller.current_trust_score`. |
 | `app/api/v1/endpoints/trust.py` | Public current-score lookup (lazy-computes on first read, Redis-cached with a short TTL and invalidated the moment a recompute happens), history, and a manual recompute trigger (seller-self or admin). |
 | `app/api/v1/endpoints/reviews.py` | Buyer reviews on delivered orders — one per order; posting one recomputes the seller's trust score. |
@@ -56,8 +57,9 @@ describes intent and two places that implement it identically.
 | `app/api/v1/endpoints/disputes.py` | Raise a dispute, submit evidence (auto-resolves once both sides have), admin arbitration override, role-scoped listing. |
 | `app/models/wishlist.py`, `app/api/v1/endpoints/wishlist.py` | Buyer wishlist — the one table added after the original 12 (see `alembic/versions/0002_add_wishlist.py`). |
 | `app/api/v1/endpoints/admin.py` | User management (list/filter/deactivate) and a consolidated analytics endpoint (users/products/orders/revenue/fraud rate/avg trust/disputes), plus `/admin/blockchain-hashes` — the on-chain audit trail. |
-| `app/blockchain/client.py` | Web3.py bridge to the deployed `TrustScore`/`EscrowDispute` contracts — connection, contract loading from `deployments/<network>.json`, and the raw `register`/`recordEvent`/`scoreOf` calls. |
-| `app/services/blockchain_service.py` | Ties DB entities to the client above: best-effort (catches and logs, never raises) so a down/unconfigured chain never breaks placing an order, delivering one, raising a dispute, or flagging fraud. `register_seller_onchain`/`register_buyer_onchain` are symmetric — `TrustScore.sol`'s `register()` doesn't distinguish participant roles. |
+| `app/blockchain/client.py` | Web3.py bridge to the deployed `TrustScore`/`EscrowDispute` contracts — connection, contract loading from `deployments/<network>.json`, the raw `register`/`recordEvent`/`scoreOf` calls, and the escrow lifecycle (`create_escrow_order`/`confirm_escrow_delivery`/`raise_escrow_dispute`/`autoresolve_escrow`/`arbitrate_escrow`). |
+| `app/services/blockchain_service.py` | Ties DB entities to the client above: best-effort (catches and logs, never raises) so a down/unconfigured chain never breaks placing an order, delivering one, raising a dispute, or flagging fraud. `register_seller_onchain`/`register_buyer_onchain` are symmetric — `TrustScore.sol`'s `register()` doesn't distinguish participant roles. The matching escrow wrappers (`create_escrow_order`, `confirm_escrow_delivery`, `raise_escrow_dispute`, `resolve_escrow_dispute`) are what `orders.py`/`disputes.py` actually call — see `documentation/05_testing_and_results.md`'s "Escrow wiring" section for why this existed as unused contract code for a while and what closing that gap involved. |
+| `app/services/transaction_service.py` | One function: syncs `Transaction.status` to `refunded` when a dispute/return resolution sends the buyer any share of the amount back — closes a real gap where `TransactionStatus.refunded` was defined and read by `trust_service`'s refund-ratio math but never actually written anywhere. |
 | `app/core/logging.py` | Stdlib `logging` configuration (not JSON/structlog — a deliberate scope call, see the design-decisions section). |
 | `app/core/limiter.py` | The shared `slowapi` `Limiter` instance, in its own module so endpoint files can import it for `@limiter.limit(...)` without a circular import back to `main.py`. |
 | `app/main.py` | FastAPI app instance: CORS, the rate-limit middleware/handler, a per-request logging middleware (method/path/status/latency + an `X-Request-ID`), global exception handlers (validation errors and unhandled exceptions both get a consistent `{"detail": ...}` envelope), router wiring, `/health`. |
@@ -159,7 +161,13 @@ describes intent and two places that implement it identically.
   written every time `/recommendations` is called), not the prototype's
   simulated backtest — `GET /recommendations/ctr` is honest live telemetry,
   which will read as 0 until real usage accumulates rather than showing a
-  pre-baked "impressive" number.
+  pre-baked "impressive" number. For an offline read on the Infosys ~20%
+  CTR-lift KPI ahead of that real traffic existing, `scripts/evaluate_
+  recommendation_ctr.py` runs a clearly-labeled synthetic backtest — a
+  synthetic catalog and buyers, but the *actual* `get_recommendations()`
+  code, not a reimplementation — and reports the real number that comes
+  out, not a target. See the script's docstring for the full disclosure
+  before quoting its output anywhere.
 - **Proximity is city-level, not GPS.** No geocoding provider is wired up,
   so `buyers.city`/`sellers.city` are one of `app.core.geo.CITY_NAMES`
   (a fixed list of major Indian cities) rather than raw lat/lng — accurate
@@ -203,26 +211,39 @@ describes intent and two places that implement it identically.
   (an account the contract owner never authorized), a live end-to-end run
   logged `TrustScore: not authorized` and the API request still succeeded
   — exactly the intended degradation.
-- **`wallet_address` is format-validated (`0x` + 40 hex chars) before it
-  ever reaches the blockchain bridge.** Found live: a one-character-short
-  address was accepted by `PATCH /auth/me` with a `200`, then failed
-  silently inside `register_seller_onchain`'s best-effort try/except —
-  `is_onchain_registered` just stayed `false`, no error surfaced. Not a
-  full EIP-55 checksum check (an all-lowercase/all-uppercase address is
-  legitimately valid too) — just the format check that would have caught
-  the actual failure.
+- **`wallet_address` can no longer be set as plain text at all.** It used
+  to be format-validated (`0x` + 40 hex chars) but otherwise trusted —
+  `PATCH /auth/me` would accept any string of the right shape with no
+  proof the caller actually controlled that address, which is the exact
+  gap a real "decentralized identity" claim needs closed. It's now only
+  ever set by `POST /auth/wallet/link`, which requires a signature over a
+  one-time server-issued nonce (`app/core/cache.py`'s `wallet_nonce_*`,
+  deliberately fail-*closed* — see its docstring — unlike the rest of that
+  module) recovered via `eth_account.Account.recover_message`. A
+  malformed-address bug used to slip through the old free-text path and
+  fail silently inside `register_seller_onchain`'s best-effort try/except;
+  the new flow can't have that failure mode since nothing reaches
+  `wallet_address` without a verified signature first.
 - **`BLOCKCHAIN_PRIVATE_KEY` must be the contract owner (or an address it
   authorized via `setReporter`)**, not just any funded account —
   `TrustScore.sol`'s `register`/`recordEvent` are `onlyAuthorized`. Using
   the wrong key doesn't crash anything (see above) but silently no-ops
   every on-chain write, which is confusing to debug if you don't know to
   check `/admin/blockchain-hashes` for missing rows.
-- **On-chain registration triggers off `wallet_address` being set**, not
-  off seller registration. A seller has no wallet at signup; the moment
-  they `PATCH /auth/me` with one, `register_seller_onchain` fires. There's
-  no MetaMask/client-side signing yet (that's a frontend concern) — the
-  backend acts as a relayer, signing with its own operator key on the
-  seller's behalf, which is why an operator key is required at all.
+- **On-chain registration triggers off a *verified* wallet, not off seller
+  registration.** A seller has no wallet at signup; the moment they
+  successfully link one (`POST /auth/wallet/link`, real signature
+  required), `register_seller_onchain` fires — gated on both
+  `wallet_address` and `wallet_verified`, not `wallet_address` alone.
+  MetaMask/client-side signing *does* exist now (`frontend/src/lib/
+  wallet.ts` + `WalletConnectButton` — `personal_sign` over a server
+  nonce), which is a real, if partial, decentralized-identity story:
+  logging in/linking cryptographically proves the caller holds the
+  private key for that address. What's still relayer-based, and worth
+  being precise about in a demo: the *on-chain contract calls themselves*
+  (`register`/`recordEvent`) are signed by the backend's own operator key,
+  not the user's — a buyer/seller proves key ownership to authenticate,
+  but doesn't sign their own blockchain transactions yet.
 - **On-chain events reuse the exact vocabulary** `contracts/TrustScore.sol`
   and the Streamlit prototype's `blockchain/chain.py` already defined
   (`successful_delivery`, `dispute_raised`, `dispute_resolved_seller`,
@@ -380,6 +401,17 @@ global feature importance are `is_new_seller`, `seller_trust_score`, and
 `seller_rating` — re-run the script after any change to `features.py` or
 `synthetic_data.py` and these numbers will change; don't hand-edit them.
 
+**Recommendation CTR backtest** (from `scripts/evaluate_recommendation_
+ctr.py`, default settings — synthetic catalog, synthetic buyers): the
+hybrid recommender beats the unpersonalized "current top_k, same for every
+buyer" baseline by a wide margin in this synthetic setup. Re-run the script
+for the exact current number and read its printed caveat before quoting
+it — the size of the lift mostly reflects how weak a static, non-rotating
+baseline is, not a tuned result. This is not a substitute for the real
+number `GET /recommendations/ctr` will report once the deployed app has
+actual buyer traffic; it exists so the ~20% KPI has *some* honest,
+reproducible answer in the meantime.
+
 ## Security review
 
 ```bash
@@ -441,7 +473,10 @@ regression in the numbers above.
 | POST | `/api/v1/auth/login` | none | Exchange email+password for tokens |
 | POST | `/api/v1/auth/refresh` | none (refresh token in body) | Exchange a refresh token for a new token pair (rotates both) |
 | GET | `/api/v1/auth/me` | Bearer JWT | Current user + role-specific profile |
-| PATCH | `/api/v1/auth/me` | Bearer JWT | Update own profile (name/phone/wallet + buyer or seller fields, role-scoped) |
+| PATCH | `/api/v1/auth/me` | Bearer JWT | Update own profile (name/phone + buyer or seller fields, role-scoped) — rejects `wallet_address`, see below |
+| POST | `/api/v1/auth/wallet/nonce` | none | Issue a one-time challenge message for an address to sign |
+| POST | `/api/v1/auth/wallet/link` | Bearer JWT | Prove ownership of a signed address and attach it to the caller's account |
+| POST | `/api/v1/auth/wallet/login` | none | Exchange a signed challenge for tokens — no password, requires a wallet already verified via `/link` |
 | POST / GET /mine / GET /{id} / PATCH /{id} / DELETE /{id} | `/api/v1/products...` | seller (owner) / none for reads | Catalog CRUD + public browse/search |
 | POST | `/api/v1/orders` | buyer | Place an order — stock check/decrement, creates Order + Transaction, runs fraud scoring, attributes recommendation purchases |
 | GET / GET /{id} / GET /{id}/transactions / PATCH /{id}/status | `/api/v1/orders...` | scoped | Tracking + seller-driven status state machine |

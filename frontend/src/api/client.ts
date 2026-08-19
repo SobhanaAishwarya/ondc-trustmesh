@@ -62,7 +62,16 @@ api.interceptors.response.use(
   (response) => response,
   async (error: AxiosError) => {
     const original = error.config as (InternalAxiosRequestConfig & { _retried?: boolean }) | undefined
-    const isAuthEndpoint = original?.url?.includes('/auth/login') || original?.url?.includes('/auth/refresh')
+    // A 401 from any of these means "these credentials didn't work," not
+    // "your session expired" — the caller (a login form) handles it
+    // directly. Without this, a failed wallet-login attempt (401, no
+    // token was ever set) fell through to the expired-session path below:
+    // a doomed refresh attempt, then a hard redirect to /login that wiped
+    // the on-screen error before the user ever saw it.
+    const isAuthEndpoint =
+      original?.url?.includes('/auth/login') ||
+      original?.url?.includes('/auth/refresh') ||
+      original?.url?.includes('/auth/wallet/')
 
     if (error.response?.status === 401 && original && !original._retried && !isAuthEndpoint) {
       original._retried = true

@@ -147,10 +147,9 @@ def test_buyer_can_update_own_profile(client):
     assert body["buyer"]["preferred_categories"] == ["Books", "Beauty"]
 
 
-def test_buyer_setting_a_wallet_address_does_not_crash_with_blockchain_disabled(client):
-    """register_buyer_onchain no-ops when BLOCKCHAIN_ENABLED is false (the
-    test-suite default) — mirrors the seller wallet-address behavior;
-    is_onchain_registered stays False rather than the request failing."""
+def test_patch_me_no_longer_accepts_a_plain_text_wallet_address(client):
+    """wallet_address used to be settable as unverified free text — closed
+    off in favor of the signed-nonce flow below (POST /auth/wallet/*)."""
     token = _register_buyer(client, email="chainbuyer@example.com").json()["access_token"]
 
     response = client.patch(
@@ -159,19 +158,14 @@ def test_buyer_setting_a_wallet_address_does_not_crash_with_blockchain_disabled(
         headers={"Authorization": f"Bearer {token}"},
     )
 
-    assert response.status_code == 200
-    body = response.json()
-    assert body["buyer"]["wallet_address"] == "0x90F79bf6EB2c4f870365E785982E1f101E93b906"
-    assert body["buyer"]["is_onchain_registered"] is False
+    assert response.status_code == 400
+    assert "wallet/link" in response.json()["detail"]
 
 
-def test_updating_profile_rejects_a_malformed_wallet_address(client):
-    token = _register_buyer(client, email="badwallet@example.com").json()["access_token"]
-
-    response = client.patch(
-        "/api/v1/auth/me",
-        json={"wallet_address": "0x70997970C51812dc3A010C7d01b50e0d17dc79C"},  # one hex char short
-        headers={"Authorization": f"Bearer {token}"},
+def test_wallet_endpoints_reject_a_malformed_address(client):
+    response = client.post(
+        "/api/v1/auth/wallet/nonce",
+        json={"address": "0x70997970C51812dc3A010C7d01b50e0d17dc79C"},  # one hex char short
     )
 
     assert response.status_code == 422

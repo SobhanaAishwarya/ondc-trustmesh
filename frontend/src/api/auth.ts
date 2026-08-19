@@ -1,5 +1,5 @@
 import { api } from './client'
-import type { Me, TokenResponse, UserRole } from '../types'
+import type { Me, TokenResponse, UserRole, WalletNonceResponse } from '../types'
 
 export interface BuyerRegisterInput {
   email: string
@@ -35,7 +35,8 @@ export const fetchMe = () => api.get<Me>('/auth/me').then((r) => r.data)
 export interface ProfileUpdateInput {
   full_name?: string
   phone?: string
-  wallet_address?: string
+  // wallet_address is deliberately absent — PATCH /me rejects it now.
+  // Use getWalletNonce + linkWallet (a signed proof of ownership) instead.
   city?: string
   preferred_categories?: string[]
   business_name?: string
@@ -44,6 +45,17 @@ export interface ProfileUpdateInput {
 }
 
 export const updateMe = (input: ProfileUpdateInput) => api.patch<Me>('/auth/me', input).then((r) => r.data)
+
+// Wallet sign-in — nonce, then a signature over it proves key ownership.
+// See src/lib/wallet.ts for the actual browser-wallet calls.
+export const getWalletNonce = (address: string) =>
+  api.post<WalletNonceResponse>('/auth/wallet/nonce', { address }).then((r) => r.data.message)
+
+export const linkWallet = (address: string, signature: string) =>
+  api.post<Me>('/auth/wallet/link', { address, signature }).then((r) => r.data)
+
+export const walletLogin = (address: string, signature: string) =>
+  api.post<TokenResponse>('/auth/wallet/login', { address, signature }).then((r) => r.data)
 
 // Revokes the refresh token server-side (app/core/cache.py's blocklist) so
 // it can't be used again even if it leaked — best-effort, see AuthContext's

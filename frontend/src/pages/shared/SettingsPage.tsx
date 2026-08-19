@@ -1,15 +1,15 @@
 import { useState, type FormEvent } from 'react'
 import { useAuth } from '../../context/AuthContext'
-import { updateMe } from '../../api/auth'
+import { linkWallet, updateMe } from '../../api/auth'
 import { apiErrorMessage } from '../../api/client'
 import { Button, Card, ErrorBanner, Input, Label, PageHeader, Select } from '../../components/ui'
+import { WalletConnectButton } from '../../components/WalletConnectButton'
 import { CATEGORIES, CITIES } from '../../lib/constants'
 
 export function SettingsPage() {
   const { user, refreshUser } = useAuth()
   const [fullName, setFullName] = useState(user?.full_name ?? '')
   const [phone, setPhone] = useState(user?.phone ?? '')
-  const [walletAddress, setWalletAddress] = useState(user?.buyer?.wallet_address ?? user?.seller?.wallet_address ?? '')
   const [businessName, setBusinessName] = useState(user?.seller?.business_name ?? '')
   const [gstin, setGstin] = useState(user?.seller?.gstin ?? '')
   const [preferredCategories, setPreferredCategories] = useState<string[]>(user?.buyer?.preferred_categories ?? [])
@@ -21,8 +21,16 @@ export function SettingsPage() {
 
   if (!user) return null
 
+  const wallet = user.buyer ?? user.seller
+
   function toggleCategory(category: string) {
     setPreferredCategories((prev) => (prev.includes(category) ? prev.filter((c) => c !== category) : [...prev, category]))
+  }
+
+  async function handleWalletLinked(address: string, signature: string) {
+    await linkWallet(address, signature)
+    await refreshUser()
+    setSuccess(true)
   }
 
   async function handleSubmit(e: FormEvent) {
@@ -34,7 +42,6 @@ export function SettingsPage() {
       await updateMe({
         full_name: fullName,
         phone: phone || undefined,
-        wallet_address: walletAddress || undefined,
         city: city || undefined,
         ...(user!.role === 'buyer' ? { preferred_categories: preferredCategories } : {}),
         ...(user!.role === 'seller'
@@ -66,17 +73,31 @@ export function SettingsPage() {
             <Input value={phone} onChange={(e) => setPhone(e.target.value)} />
           </div>
           <div>
-            <Label>Wallet address</Label>
-            <Input
-              value={walletAddress}
-              onChange={(e) => setWalletAddress(e.target.value)}
-              placeholder="0x..."
-            />
-            {user.role === 'seller' && (
-              <p className="mt-1 text-xs text-slate-400">
-                Setting this registers you on the on-chain TrustScore ledger (if the blockchain bridge is enabled).
-                {user.seller?.is_onchain_registered ? ' Currently registered on-chain.' : ' Not yet registered on-chain.'}
-              </p>
+            <Label>Wallet</Label>
+            {wallet?.wallet_verified ? (
+              <div>
+                <p className="flex items-center gap-2 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800/60">
+                  <span className="rounded-full bg-status-good/15 px-2 py-0.5 text-xs font-medium text-status-good">
+                    Verified
+                  </span>
+                  <span className="truncate font-mono text-xs">{wallet.wallet_address}</span>
+                </p>
+                {user.role === 'seller' && (
+                  <p className="mt-1 text-xs text-slate-400">
+                    {user.seller?.is_onchain_registered
+                      ? 'Registered on the on-chain TrustScore ledger.'
+                      : 'Not yet registered on-chain (only happens if the blockchain bridge is enabled).'}
+                  </p>
+                )}
+              </div>
+            ) : (
+              <div>
+                <p className="text-xs text-slate-400">
+                  No wallet linked yet. Connecting proves you control the address with a signature — nothing is typed in,
+                  and no transaction or gas is involved.
+                </p>
+                <WalletConnectButton label="Connect & verify wallet" onSigned={handleWalletLinked} />
+              </div>
             )}
           </div>
 

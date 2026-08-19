@@ -137,9 +137,19 @@ _cached_model: TrainedFraudModel | None = None
 
 def get_fraud_model() -> TrainedFraudModel:
     """Process-wide singleton. Loads the pre-trained artifact if
-    `scripts/train_fraud_model.py` has been run; otherwise trains a smaller
-    model on the fly (fresh checkout, CI, tests) so the API never hard-fails
-    for lack of a file on disk."""
+    `scripts/train_fraud_model.py` has been run and its output is on disk
+    (only true for local checkouts / docker-compose, which volume-mounts
+    trained_models/ — Render's Docker build context is backend/ alone, so
+    the artifact never reaches the deployed container); otherwise trains
+    in-process on boot.
+
+    The in-process path uses the *same* n=6000/seed=42 as
+    scripts/train_fraud_model.py, not a smaller sample — both
+    generate_synthetic_transactions() and train() default to seed=42, so
+    this reproduces the documented ~90%/~95% ROC-AUC metrics on every boot
+    rather than silently serving a weaker, undocumented model to whichever
+    deployment target doesn't have the artifact file. Training 6000 rows
+    takes a couple of seconds, negligible next to a free-tier cold start."""
     global _cached_model
     if _cached_model is not None:
         return _cached_model
@@ -152,7 +162,7 @@ def get_fraud_model() -> TrainedFraudModel:
         if path.exists():
             _cached_model = load(path)
         else:
-            _cached_model = train(generate_synthetic_transactions(n=2000))
+            _cached_model = train(generate_synthetic_transactions())
         return _cached_model
 
 

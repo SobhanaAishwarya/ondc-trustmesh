@@ -26,9 +26,10 @@ from app.models.user import User, UserRole
 from app.schemas.common import Page
 from app.schemas.dispute import DisputeRead
 from app.schemas.order import OrderCreate, OrderRead, OrderStatusUpdate, OrderWithTransaction, ReturnRequest, TransactionRead
-from app.services.blockchain_service import record_trust_event
+from app.services.blockchain_service import confirm_escrow_delivery, create_escrow_order, record_trust_event
 from app.services.fraud_service import score_transaction
 from app.services.recommendation_service import mark_purchased_if_recommended
+from app.services.transaction_service import mark_refunded_if_buyer_won_any_share
 from app.services.trust_service import recompute_trust_score
 
 router = APIRouter(prefix="/orders", tags=["orders"])
@@ -86,6 +87,7 @@ def create_order(payload: OrderCreate, buyer: CurrentBuyer, db: DbSession) -> Or
     seller = db.get(Seller, product.seller_id)
     score_transaction(db, transaction, buyer, seller, product)
     mark_purchased_if_recommended(db, buyer.id, product.id)
+    create_escrow_order(db, order, seller)  # no-op if the chain isn't enabled/reachable
 
     db.commit()
     db.refresh(order)
@@ -156,6 +158,7 @@ def update_order_status(
         # rather than waiting for the next unrelated trigger.
         recompute_trust_score(db, seller)
         record_trust_event(db, seller, "successful_delivery")  # no-op if chain isn't enabled/reachable
+        confirm_escrow_delivery(db, order)  # releases the escrowed amount to the seller on-chain; no-op if unavailable
 
     db.commit()
     db.refresh(order)
@@ -217,6 +220,12 @@ def request_return(order_id: uuid.UUID, payload: ReturnRequest, buyer: CurrentBu
         dispute.resolved_at = datetime.now(timezone.utc)
         order.status = OrderStatus.resolved
         trust_event = "dispute_resolved_buyer"
+        mark_refunded_if_buyer_won_any_share(db, order.id, dispute.seller_share_bps)
+        # No on-chain settlement call here: a self-service return only ever
+        # fires post-delivery, and confirm_escrow_delivery already paid the
+        # full amount to the seller on-chain at that point (see
+        # contracts/EscrowDispute.sol — raiseDispute only accepts a
+        # pre-delivery order). There's nothing left in escrow to settle.
     else:
         dispute.status = DisputeStatus.open
         order.status = OrderStatus.disputed

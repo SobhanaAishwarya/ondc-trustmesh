@@ -17,6 +17,7 @@ export type BuyerProfile = components['schemas']['BuyerProfileRead']
 export type SellerProfile = components['schemas']['SellerProfileRead']
 
 export type TokenResponse = components['schemas']['TokenResponse']
+export type WalletNonceResponse = components['schemas']['WalletNonceResponse']
 
 export interface Page<T> {
   items: T[]

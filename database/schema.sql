@@ -54,6 +54,10 @@ CREATE TABLE buyers (
     id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id                 UUID NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
     wallet_address          VARCHAR(42),
+    -- True only once ownership was proven by signature over a one-time
+    -- server nonce (0005_wallet_verified.py) — PATCH /auth/me can no
+    -- longer set wallet_address as unverified free text.
+    wallet_verified         BOOLEAN NOT NULL DEFAULT FALSE,
     price_sensitivity       NUMERIC(3, 2) NOT NULL DEFAULT 0.5 CHECK (price_sensitivity BETWEEN 0 AND 1),
     preferred_categories    TEXT[] NOT NULL DEFAULT '{}',
     -- One of app.core.geo.CITY_NAMES, or NULL if unset. Added by
@@ -79,6 +83,9 @@ CREATE TABLE sellers (
     user_id             UUID NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
     business_name       VARCHAR(255) NOT NULL,
     wallet_address      VARCHAR(42),
+    -- True only once ownership was proven by signature over a one-time
+    -- server nonce (0005_wallet_verified.py).
+    wallet_verified     BOOLEAN NOT NULL DEFAULT FALSE,
     gstin               VARCHAR(15),
     seller_age_days     INTEGER NOT NULL DEFAULT 0,
     -- One of app.core.geo.CITY_NAMES, or NULL if unset (0004_add_location_fields.py).
@@ -228,7 +235,7 @@ CREATE TABLE disputes (
     status              dispute_status NOT NULL DEFAULT 'open',
     resolution_outcome  VARCHAR(100),
     seller_share_bps    INTEGER CHECK (seller_share_bps BETWEEN 0 AND 10000),
-    resolved_by         VARCHAR(20),   -- 'ai_auto' | 'arbitrator'
+    resolved_by         VARCHAR(20),   -- 'rule_auto' | 'arbitrator' | 'auto_return'
     onchain_tx_hash     VARCHAR(66),
     created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
     resolved_at         TIMESTAMPTZ

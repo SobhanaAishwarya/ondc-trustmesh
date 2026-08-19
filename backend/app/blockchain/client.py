@@ -103,15 +103,23 @@ def reset_cached_connections() -> None:
     get_escrow_contract.cache_clear()
 
 
-def _send(function_call, account) -> dict:
+def _send(function_call, account, value: int = 0) -> dict:
     w3 = get_web3()
     tx = function_call.build_transaction(
-        {"from": account.address, "nonce": w3.eth.get_transaction_count(account.address)}
+        {"from": account.address, "nonce": w3.eth.get_transaction_count(account.address), "value": value}
     )
     signed = account.sign_transaction(tx)
     tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
     receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=60)
-    return {"tx_hash": receipt.transactionHash.hex(), "block_number": receipt.blockNumber, "status": receipt.status}
+    # `receipt` (the raw web3 object, needed to decode emitted events — see
+    # create_escrow_order) rides along under a throwaway key; every caller
+    # except create_escrow_order ignores it.
+    return {
+        "tx_hash": receipt.transactionHash.hex(),
+        "block_number": receipt.blockNumber,
+        "status": receipt.status,
+        "_receipt": receipt,
+    }
 
 
 def is_registered_onchain(address: str) -> bool:
@@ -137,3 +145,63 @@ def record_event(address: str, event_type: str) -> dict:
 def get_onchain_score(address: str) -> int:
     contract = get_trust_score_contract()
     return contract.functions.scoreOf(Web3.to_checksum_address(address)).call()
+
+
+# --- EscrowDispute.sol ---
+#
+# The contract has no client-side wallet signing yet (see the module
+# docstring's relayer note) — the operator account is the only key this
+# backend ever signs with, so it's also the on-chain `msg.sender` for every
+# escrow call, meaning `order.buyer`/`order.seller` on-chain are always the
+# operator, not the real buyer/seller's own wallet. That's an accepted
+# simplification, not a bug: it still exercises the contract's real fund
+# custody and settlement logic end to end, just under one relayer identity
+# rather than two independently-signing parties.
+#
+# `amount_wei` is a deliberate demo convention, not a currency conversion:
+# real ETH is worth thousands of dollars, so treating a rupee amount as a
+# real ETH value would make every order prohibitively expensive to escrow.
+# Scaling the rupee amount into wei (see blockchain_service.create_escrow_
+# order) keeps each order's locked value tiny but distinct and traceable,
+# so the mechanism is fully real without needing real financial exposure.
+
+
+def create_escrow_order(seller_address: str, amount_wei: int) -> dict:
+    contract = get_escrow_contract()
+    account = get_operator_account()
+    result = _send(contract.functions.createOrder(Web3.to_checksum_address(seller_address)), account, value=amount_wei)
+    created = contract.events.OrderCreated().process_receipt(result.pop("_receipt"))
+    result["onchain_order_id"] = int(created[0]["args"]["orderId"]) if created else None
+    return result
+
+
+def confirm_escrow_delivery(onchain_order_id: int) -> dict:
+    contract = get_escrow_contract()
+    account = get_operator_account()
+    result = _send(contract.functions.confirmDelivery(onchain_order_id), account)
+    result.pop("_receipt")
+    return result
+
+
+def raise_escrow_dispute(onchain_order_id: int, reason: str) -> dict:
+    contract = get_escrow_contract()
+    account = get_operator_account()
+    result = _send(contract.functions.raiseDispute(onchain_order_id, reason), account)
+    result.pop("_receipt")
+    return result
+
+
+def autoresolve_escrow(onchain_order_id: int) -> dict:
+    contract = get_escrow_contract()
+    account = get_operator_account()
+    result = _send(contract.functions.autoResolve(onchain_order_id), account)
+    result.pop("_receipt")
+    return result
+
+
+def arbitrate_escrow(onchain_order_id: int, seller_share_bps: int) -> dict:
+    contract = get_escrow_contract()
+    account = get_operator_account()
+    result = _send(contract.functions.arbitratorResolve(onchain_order_id, seller_share_bps), account)
+    result.pop("_receipt")
+    return result

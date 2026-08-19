@@ -1,5 +1,18 @@
 # TrustMesh — Blockchain-AI Trust Layer for ONDC
 
+> **This repo holds two implementations.** The one actually deployed and
+> submitted is `backend/` (FastAPI) + `frontend/` (React) — see
+> [`backend/README.md`](backend/README.md) for the real, production
+> architecture, and the root [`render.yaml`](render.yaml) for how it's
+> hosted. Everything below this line describes a separate, earlier
+> Streamlit dashboard kept at the repo root for reference. **Its KPI
+> numbers (accuracy, CTR lift, blockchain timing) come from that
+> dashboard's own synthetic simulation and describe only that prototype —
+> they are not measurements of the deployed backend/frontend system**,
+> which has its own, different, independently-measured results (see
+> `backend/README.md` and `documentation/05_testing_and_results.md`).
+> Don't quote this page's numbers as the project's numbers.
+
 Prototype for **Project 3: Blockchain-AI Enhanced ONDC Implementation** — a
 decentralized trust-scoring and dispute-resolution layer for the Open Network
 for Digital Commerce (ONDC), combined with AI-driven fraud detection and
