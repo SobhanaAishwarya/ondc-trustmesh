@@ -27,6 +27,7 @@ export interface Page<T> {
 }
 
 export type Product = components['schemas']['ProductRead']
+export type VendorMatch = components['schemas']['VendorMatchRead']
 
 export type OrderStatus = components['schemas']['OrderStatus']
 export type PaymentMethod = components['schemas']['PaymentMethod']
@@ -36,11 +37,18 @@ export type Order = components['schemas']['OrderRead']
 export type Transaction = components['schemas']['TransactionRead']
 export type OrderWithTransaction = components['schemas']['OrderWithTransaction']
 
-// risk_factors is `dict | None` on the backend (app/schemas/fraud.py) —
-// OpenAPI has no way to express its actual per-key shape, so that one
-// field is refined here rather than left as the generated `unknown`.
-export type FraudLog = Omit<components['schemas']['FraudLogRead'], 'risk_factors'> & {
+// risk_factors and rule_signals are `dict | None` on the backend
+// (app/schemas/fraud.py) — OpenAPI has no way to express their actual
+// per-key shape, so both are refined here rather than left as the
+// generated `unknown`. rule_signals mirrors app.ml.fraud_rules'
+// evaluate_rule_based_signals output exactly (duplicate_account_suspected,
+// high_velocity_bot_suspected).
+export type FraudLog = Omit<components['schemas']['FraudLogRead'], 'risk_factors' | 'rule_signals'> & {
   risk_factors: Record<string, { value: number | string; contribution_score: number }> | null
+  rule_signals: {
+    duplicate_account_suspected: { triggered: boolean; phone_shared_by_accounts: number }
+    high_velocity_bot_suspected: { triggered: boolean; orders_last_hour: number }
+  } | null
 }
 
 export type TrustScore = components['schemas']['TrustScoreRead']

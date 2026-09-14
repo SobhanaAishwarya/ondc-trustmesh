@@ -9,11 +9,12 @@ import uuid
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import func, or_, select
 
-from app.api.deps import CurrentSeller, DbSession
+from app.api.deps import CurrentBuyer, CurrentSeller, DbSession
 from app.core.cache import cache_delete, cache_get, cache_incr, cache_set
 from app.models.product import Product
 from app.schemas.common import Page
-from app.schemas.product import ProductCreate, ProductRead, ProductUpdate
+from app.schemas.product import ProductCreate, ProductRead, ProductUpdate, VendorMatchRead
+from app.services.vendor_matching_service import compare_vendors
 
 router = APIRouter(prefix="/products", tags=["products"])
 
@@ -81,6 +82,33 @@ def list_products(
     result = Page(items=[ProductRead.model_validate(p) for p in products], total=total, limit=limit, offset=offset)
     cache_set(cache_key, result.model_dump_json(), PRODUCT_LIST_CACHE_TTL_SECONDS)
     return result
+
+
+@router.get("/compare", response_model=list[VendorMatchRead])
+def compare_vendors_for_product(name: str, buyer: CurrentBuyer, db: DbSession) -> list[VendorMatchRead]:
+    """Module 2 (Intelligent Vendor Matching): every active seller
+    listing this exact product name, ranked by a transparent weighted
+    match score (30% rating + 25% proximity + 20% price + 15% delivery
+    speed + 10% availability) instead of the arbitrary newest-first order
+    `GET /products` uses — this is what actually answers "there are 5
+    listings at different prices, which one is better?" Route declared
+    before `/{product_id}` so "compare" isn't swallowed as a UUID path
+    param.
+    """
+    matches = compare_vendors(db, buyer, name)
+    return [
+        VendorMatchRead(
+            product=ProductRead.model_validate(match.product),
+            seller_id=match.product.seller_id,
+            seller_name=match.seller.business_name if match.seller else "Unknown seller",
+            rating=round(match.rating, 2),
+            distance_km=match.distance_km,
+            estimated_delivery_days=match.estimated_delivery_days,
+            match_score=match.match_score,
+            is_best_match=match.is_best_match,
+        )
+        for match in matches
+    ]
 
 
 @router.get("/mine", response_model=list[ProductRead])

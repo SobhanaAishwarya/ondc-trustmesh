@@ -41,3 +41,18 @@ class ProductRead(BaseModel):
     is_active: bool
     created_at: datetime
     updated_at: datetime
+
+
+class VendorMatchRead(BaseModel):
+    """One row of `GET /products/compare` — a single seller's listing of
+    the searched-for product, plus the sub-scores that produced its
+    match_score, so the ranking is auditable rather than a black box."""
+
+    product: ProductRead
+    seller_id: uuid.UUID
+    seller_name: str
+    rating: float
+    distance_km: float | None
+    estimated_delivery_days: int | None
+    match_score: float
+    is_best_match: bool

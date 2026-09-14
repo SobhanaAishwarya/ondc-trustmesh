@@ -1,5 +1,5 @@
 import { api } from './client'
-import type { Page, Product } from '../types'
+import type { Page, Product, VendorMatch } from '../types'
 
 export interface ProductFilters {
   category?: string
@@ -32,3 +32,9 @@ export const updateProduct = (id: string, input: Partial<ProductInput> & { is_ac
   api.patch<Product>(`/products/${id}`, input).then((r) => r.data)
 
 export const deactivateProduct = (id: string) => api.delete(`/products/${id}`)
+
+// Module 2 (Intelligent Vendor Matching): every active seller listing an
+// exact product name, ranked by match_score — see
+// backend/app/services/vendor_matching_service.py for the formula.
+export const compareVendors = (name: string) =>
+  api.get<VendorMatch[]>('/products/compare', { params: { name } }).then((r) => r.data)

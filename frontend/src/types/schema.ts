@@ -183,6 +183,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/products/compare": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Compare Vendors For Product
+         * @description Module 2 (Intelligent Vendor Matching): every active seller
+         *     listing this exact product name, ranked by a transparent weighted
+         *     match score (30% rating + 25% proximity + 20% price + 15% delivery
+         *     speed + 10% availability) instead of the arbitrary newest-first order
+         *     `GET /products` uses — this is what actually answers "there are 5
+         *     listings at different prices, which one is better?" Route declared
+         *     before `/{product_id}` so "compare" isn't swallowed as a UUID path
+         *     param.
+         */
+        get: operations["compare_vendors_for_product_api_v1_products_compare_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/products/mine": {
         parameters: {
             query?: never;
@@ -954,6 +981,10 @@ export interface components {
             risk_factors: {
                 [key: string]: unknown;
             } | null;
+            /** Rule Signals */
+            rule_signals: {
+                [key: string]: unknown;
+            } | null;
             /** Reviewed By Admin Id */
             reviewed_by_admin_id: string | null;
             /** Admin Decision */
@@ -1548,6 +1579,32 @@ export interface components {
             /** Context */
             ctx?: Record<string, never>;
         };
+        /**
+         * VendorMatchRead
+         * @description One row of `GET /products/compare` — a single seller's listing of
+         *     the searched-for product, plus the sub-scores that produced its
+         *     match_score, so the ranking is auditable rather than a black box.
+         */
+        VendorMatchRead: {
+            product: components["schemas"]["ProductRead"];
+            /**
+             * Seller Id
+             * Format: uuid
+             */
+            seller_id: string;
+            /** Seller Name */
+            seller_name: string;
+            /** Rating */
+            rating: number;
+            /** Distance Km */
+            distance_km: number | null;
+            /** Estimated Delivery Days */
+            estimated_delivery_days: number | null;
+            /** Match Score */
+            match_score: number;
+            /** Is Best Match */
+            is_best_match: boolean;
+        };
         /** WalletNonceRequest */
         WalletNonceRequest: {
             /** Address */
@@ -1971,6 +2028,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProductRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    compare_vendors_for_product_api_v1_products_compare_get: {
+        parameters: {
+            query: {
+                name: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VendorMatchRead"][];
                 };
             };
             /** @description Validation Error */

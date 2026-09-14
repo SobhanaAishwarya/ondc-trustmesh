@@ -1,12 +1,12 @@
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { getProduct } from '../../api/products'
+import { compareVendors, getProduct } from '../../api/products'
 import { getCurrentTrustScore } from '../../api/trust'
 import { placeOrder } from '../../api/orders'
 import { addToWishlist } from '../../api/wishlist'
 import { apiErrorMessage } from '../../api/client'
-import { Button, Card, ErrorBanner, LoadingBlock, Select } from '../../components/ui'
+import { Badge, Button, Card, ErrorBanner, LoadingBlock, Select } from '../../components/ui'
 import { ProductImage, TrustScoreBadge } from '../../components/domain'
 import { formatCurrency } from '../../lib/format'
 import { PAYMENT_METHODS } from '../../lib/constants'
@@ -24,6 +24,11 @@ export function ProductDetailPage() {
   const trustQuery = useQuery({
     queryKey: ['trust', productQuery.data?.seller_id],
     queryFn: () => getCurrentTrustScore(productQuery.data!.seller_id),
+    enabled: !!productQuery.data,
+  })
+  const vendorMatchQuery = useQuery({
+    queryKey: ['vendor-compare', productQuery.data?.name],
+    queryFn: () => compareVendors(productQuery.data!.name),
     enabled: !!productQuery.data,
   })
 
@@ -121,6 +126,58 @@ export function ProductDetailPage() {
           </div>
         </div>
       </Card>
+
+      {vendorMatchQuery.data && vendorMatchQuery.data.length > 1 && (
+        <Card className="p-6 md:col-span-2">
+          <h2 className="font-semibold">
+            Compare sellers for &ldquo;{product.name}&rdquo; ({vendorMatchQuery.data.length} listings)
+          </h2>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+            Ranked by match score — 30% rating, 25% proximity, 20% price, 15% delivery speed, 10% availability.
+          </p>
+          <div className="mt-4 overflow-x-auto">
+            <table className="w-full min-w-[560px] text-left text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 text-xs uppercase text-slate-400 dark:border-slate-800">
+                  <th className="py-2 pr-4">Seller</th>
+                  <th className="py-2 pr-4">Price</th>
+                  <th className="py-2 pr-4">Rating</th>
+                  <th className="py-2 pr-4">Delivery</th>
+                  <th className="py-2 pr-4">Match score</th>
+                </tr>
+              </thead>
+              <tbody>
+                {vendorMatchQuery.data.map((match) => (
+                  <tr
+                    key={match.product.id}
+                    className={`border-b border-slate-100 last:border-0 dark:border-slate-800 ${
+                      match.product.id === product.id ? 'bg-blue-50/60 dark:bg-blue-950/30' : ''
+                    }`}
+                  >
+                    <td className="py-2 pr-4 font-medium">
+                      {match.seller_name}
+                      {match.is_best_match && (
+                        <span className="ml-2">
+                          <Badge tone="good">★ Best match</Badge>
+                        </span>
+                      )}
+                      {match.product.id === product.id && (
+                        <span className="ml-2 text-xs font-normal text-slate-400">(you&rsquo;re viewing this one)</span>
+                      )}
+                    </td>
+                    <td className="py-2 pr-4">{formatCurrency(match.product.price)}</td>
+                    <td className="py-2 pr-4">{match.rating.toFixed(1)} / 5</td>
+                    <td className="py-2 pr-4">
+                      {match.estimated_delivery_days != null ? `${match.estimated_delivery_days}d` : '—'}
+                    </td>
+                    <td className="py-2 pr-4 font-semibold">{Math.round(match.match_score * 100)}%</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
     </div>
   )
 }
