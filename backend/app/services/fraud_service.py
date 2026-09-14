@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.ml.features import CATEGORICAL_FEATURES, NUMERIC_FEATURES, TransactionContext, compute_live_features
+from app.ml.fraud_rules import any_rule_triggered, evaluate_rule_based_signals
 from app.ml.model import MODEL_NAME, MODEL_VERSION, TrainedFraudModel, get_fraud_model
 from app.models.buyer import Buyer
 from app.models.fraud_log import FraudLog
@@ -44,7 +45,11 @@ def score_transaction(
     )
     features = compute_live_features(db, ctx)
     probability = round(model.predict_proba(features), 4)
-    is_flagged = probability >= settings.fraud_flag_threshold
+    rule_signals = evaluate_rule_based_signals(db, buyer)
+    # A rule firing is enough to flag on its own — duplicate-account and
+    # bot-velocity patterns are explicit enough that they shouldn't need
+    # the general classifier to also agree before a human reviews them.
+    is_flagged = probability >= settings.fraud_flag_threshold or any_rule_triggered(rule_signals)
 
     transaction.fraud_probability = probability
     transaction.is_fraud_flagged = is_flagged
@@ -56,6 +61,7 @@ def score_transaction(
         fraud_probability=probability,
         is_flagged=is_flagged,
         risk_factors=_top_risk_factors(model, features),
+        rule_signals=rule_signals,
     )
     db.add(fraud_log)
 

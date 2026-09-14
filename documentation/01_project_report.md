@@ -20,10 +20,10 @@ dependency-light Streamlit prototype (`app.py`, `pages/`, `ml/`,
 production-shaped system (FastAPI backend, React frontend, PostgreSQL,
 Redis, Docker, CI) that this report documents. The fraud model measures
 **90.3% accuracy** (94.8% ROC-AUC) on held-out data, clearing the >85%
-KPI target; the full stack — backend (137 automated tests, 129 passing
+KPI target; the full stack — backend (156 automated tests, 140 passing
 with zero external services), frontend
 (Playwright end-to-end verification against a live backend), and the
-blockchain bridge (8 tests against a real local Ethereum node) — has been
+blockchain bridge (16 tests against a real local Ethereum node) — has been
 run and verified, not just written. A subsequent hardening pass closed
 five gaps found in an earlier audit (buyer on-chain registration,
 `EscrowDispute.sol`'s fund-transfer safety, rate limiting, structured

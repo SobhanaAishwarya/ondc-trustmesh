@@ -76,6 +76,29 @@ if is_flagged:
     record_trust_event(seller, "fraud_flagged")            # best-effort, on-chain
 ```
 
+**Rule-based sub-detectors** (`backend/app/ml/fraud_rules.py`) run
+alongside the classifier above — explicit, explainable checks a reviewer
+can point to independent of a model probability, closing the gap between
+"one general classifier" and the project brief's separate call-outs for
+duplicate-account and bot-activity detection:
+
+```
+duplicate_account_suspected = count(User where phone = buyer.phone) >= 2
+high_velocity_bot_suspected = count(Transaction by buyer in last 1h) >= 6
+
+is_flagged = (probability >= FRAUD_FLAG_THRESHOLD)
+             OR duplicate_account_suspected
+             OR high_velocity_bot_suspected
+
+write FraudLog.rule_signals = {duplicate_account_suspected, high_velocity_bot_suspected}
+```
+
+Either rule alone is enough to flag — no need for the ML model to also
+agree. **Not built**: location-anomaly detection, which needs an
+address/geo column that doesn't exist on buyers/sellers yet (see
+`app/ml/features.py`'s reasoning for why `distance_km` is excluded from
+the classifier for the same underlying reason).
+
 **Explainability** (`_top_risk_factors`) — a lightweight, dependency-free
 ranking, not a Shapley-value decomposition:
 

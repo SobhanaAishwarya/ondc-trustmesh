@@ -273,7 +273,8 @@ CREATE TABLE fraud_logs (
     model_version           VARCHAR(20) NOT NULL,
     fraud_probability       NUMERIC(5, 4) NOT NULL,
     is_flagged              BOOLEAN NOT NULL,
-    risk_factors            JSONB,
+    risk_factors            JSONB,  -- ML model explainability (app.ml.fraud_service)
+    rule_signals            JSONB,  -- rule-based sub-detectors (app.ml.fraud_rules): duplicate_account_suspected, high_velocity_bot_suspected
     reviewed_by_admin_id    UUID REFERENCES users(id),
     admin_decision          VARCHAR(20),   -- 'confirmed_fraud' | 'false_positive' | null (pending)
     created_at              TIMESTAMPTZ NOT NULL DEFAULT now()

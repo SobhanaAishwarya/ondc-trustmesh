@@ -19,25 +19,25 @@ model training), the exact command is given so it can be reproduced.
 | End-to-end | Playwright, against a **real running backend** | `frontend/e2e/purchase-flow.spec.ts` | Seller signup → add product → buyer signup → browse → purchase, asserting on rendered UI state, zero console errors |
 | Load / performance | Locust, against a **real running backend** | `backend/loadtest/` | Concurrent read/write latency under load |
 
-## Backend: 153 tests — 137 passing, 16 skipped without a local chain
+## Backend: 156 tests — 140 passing, 16 skipped without a local chain
 
 ```
 $ pytest -q
 ............................................................................
 ............................................................................
-....................................ssssssssssssssss...............
-137 passed, 16 skipped in ~53s
+....................................ssssssssssssssss..................
+140 passed, 16 skipped in ~47s
 ```
 
 Also run against a live local chain (`npx hardhat node` + `npx hardhat run
-scripts/deploy.js --network localhost`) — all 153 pass, 0 skipped, the
+scripts/deploy.js --network localhost`) — all 156 pass, 0 skipped, the
 same suite exercising real transactions instead of skipping (verified: a
 seller receives real released escrow funds, a rule-based auto-resolve
 splits real escrow funds by live on-chain trust scores, and an arbitrator
 override pays out an exact specified split). See "Blockchain" below for a
 manual, beyond-the-test-suite run against that same live chain.
 
-No Docker, Postgres, or blockchain node required for the 129 that run —
+No Docker, Postgres, or blockchain node required for the 140 that run —
 `tests/conftest.py` runs against an in-memory SQLite database (see
 `backend/README.md` for why the ORM models support both dialects). The 16
 skips are `tests/test_blockchain_bridge.py`, which needs a real local
@@ -222,6 +222,48 @@ conflict, and a fail-closed check with Redis genuinely unreachable — plus
 3 new frontend tests (`WalletConnectButton.test.tsx`) against a stubbed
 wallet provider covering the happy path, no-extension-installed, and a
 rejected-signature error.
+
+### Granular fraud sub-detectors (closing the "one classifier does everything" gap)
+
+`backend/README.md`'s "What's next" section flagged this honestly: the
+RandomForest classifier was the only fraud signal, and `is_new_seller`/
+`velocity_1h` were only *proxies* for duplicate-account and bot-activity
+patterns the project brief calls out by name — not dedicated detectors a
+reviewer could point to separately from the general model.
+
+Closed with `app/ml/fraud_rules.py` — two explicit, explainable rules that
+run alongside (not instead of) the ML classifier, needing no schema
+migration for the detection logic itself (they read `users.phone` and
+`transactions.created_at`, both already there):
+
+1. **Duplicate-account detection** — 2 or more `users` rows sharing one
+   phone number. Deliberately conservative (a shared household number
+   alone isn't fraud) rather than tied to anything invasive.
+2. **Velocity/bot detection** — 6 or more orders by the same buyer inside
+   one rolling hour. Distinct from, and tighter than, the continuous
+   `velocity_1h` feature the ML model already sees — a hard, explainable
+   line rather than a learned pattern.
+
+Either rule firing sets `is_fraud_flagged = True` on its own, independent
+of the ML probability — `FraudLog.rule_signals` (new column,
+`0006_fraud_rule_signals.py`) records both rules' outputs on every scored
+transaction, always present (not just when something triggers), kept
+separate from `risk_factors` (the ML model's own explainability) so
+"why did the model think this" and "which explicit rule fired" never get
+confused with each other.
+
+Explicit non-goal, not smoothed over: **location-anomaly detection stays
+out.** It needs an address/geo column that doesn't exist on
+buyers/sellers yet — faking a distance feature would repeat exactly the
+train/serve-skew mistake `app/ml/features.py` already documents avoiding
+for `distance_km`. A real follow-up, not a rule that could be added today
+without lying about what data backs it.
+
+3 new tests in `test_fraud_api.py`: two accounts sharing a phone number
+trip the duplicate-account rule (and a unique phone doesn't), and a
+6-order burst from one buyer inside an hour trips the velocity rule —
+verified via the real order-creation flow, not by calling
+`fraud_rules.py`'s functions directly.
 
 ### Hardening pass (post-launch gap closure)
 

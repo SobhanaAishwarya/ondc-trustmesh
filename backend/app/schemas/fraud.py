@@ -15,6 +15,7 @@ class FraudLogRead(BaseModel):
     fraud_probability: Decimal
     is_flagged: bool
     risk_factors: dict | None
+    rule_signals: dict | None
     reviewed_by_admin_id: uuid.UUID | None
     admin_decision: str | None
     created_at: datetime

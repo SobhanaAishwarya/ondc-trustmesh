@@ -29,6 +29,12 @@ class FraudLog(Base):
     fraud_probability: Mapped[Decimal] = mapped_column(Numeric(5, 4), nullable=False)
     is_flagged: Mapped[bool] = mapped_column(Boolean, nullable=False, index=True)
     risk_factors: Mapped[dict | None] = mapped_column(JSONType)
+    # Output of app.ml.fraud_rules.evaluate_rule_based_signals — explicit,
+    # explainable sub-detectors (duplicate account, velocity/bot) that run
+    # alongside the general ML classifier, not derived from it. Separate
+    # column from risk_factors (the ML model's own explainability) so one
+    # doesn't get overwritten by or confused with the other.
+    rule_signals: Mapped[dict | None] = mapped_column(JSONType)
     reviewed_by_admin_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("users.id"))
     admin_decision: Mapped[str | None] = mapped_column(String(20))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

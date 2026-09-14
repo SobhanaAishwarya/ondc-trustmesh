@@ -44,10 +44,13 @@ describes intent and two places that implement it identically.
 | `app/ml/features.py` | The fraud model's feature schema — one definition shared by training and live scoring so they can't drift apart (train/serve skew). |
 | `app/ml/synthetic_data.py` | Generates labeled synthetic transactions over that exact feature schema (no real ONDC fraud dataset exists — same situation as the Streamlit prototype). |
 | `app/ml/model.py` | Trains the RandomForest pipeline, saves/loads the artifact, and exposes `get_fraud_model()` — a process-wide singleton with a train-on-demand fallback if no artifact is on disk. |
-| `app/services/fraud_service.py` | Scores one transaction: pulls live features from the DB, calls the model, writes `Transaction.fraud_probability`/`is_fraud_flagged`, and records a `FraudLog` with lightweight explainability. |
+| `app/services/fraud_service.py` | Scores one transaction: pulls live features from the DB, calls the model, writes `Transaction.fraud_probability`/`is_fraud_flagged`, and records a `FraudLog` with lightweight explainability plus the rule-based signals below. |
+| `app/ml/fraud_rules.py` | Rule-based sub-detectors that run alongside the ML classifier — duplicate-account (phone reuse) and velocity/bot (order burst) — either one alone can flag a transaction. Kept separate from the model so a reviewer can point to an explicit, explainable rule rather than only a probability. |
 | `app/api/v1/endpoints/fraud.py` | `/fraud/alerts` (role-scoped) and the admin fraud-log review endpoint. |
 | `scripts/train_fraud_model.py` | Regenerates the training set and the model artifact, prints evaluation metrics. Run this after changing `features.py` or `synthetic_data.py`. |
 | `scripts/evaluate_recommendation_ctr.py` | Self-contained synthetic CTR backtest for the real `recommendation_service.get_recommendations()` — see its docstring for what it does and doesn't prove. |
+| `scripts/seed_live_ctr_demo.py` | Generates real (non-synthetic) recommendation traffic against a **live deployed** backend — real demo buyers/seller, real impressions/clicks/orders — so `GET /recommendations/ctr` has an actual number instead of 0 before organic usage exists. Every account is named `ctr-demo-*`. |
+| `scripts/seed_live_marketplace_catalog.py` | Seeds ~15 real product types × 5 distinct demo sellers (different city/delivery radius/price each) against a **live deployed** backend, so vendor matching has more than one seller per product to actually compare. Images are freely-licensed Wikipedia/Commons photos, not scraped from any competitor site — see the script's docstring for why. |
 | `app/services/trust_service.py` | Trust-score computation — the multi-factor formula from `schema.sql`'s `trust_scores` table (completion rate, transaction success, ratings, complaints, refund ratio, late delivery, fraud probability, disputes, seller age), distinct from the simpler on-chain event-delta model in `contracts/TrustScore.sol`. Persists a time-series row and syncs `Seller.current_trust_score`. |
 | `app/api/v1/endpoints/trust.py` | Public current-score lookup (lazy-computes on first read, Redis-cached with a short TTL and invalidated the moment a recompute happens), history, and a manual recompute trigger (seller-self or admin). |
 | `app/api/v1/endpoints/reviews.py` | Buyer reviews on delivered orders — one per order; posting one recomputes the seller's trust score. |
@@ -343,8 +346,8 @@ pip install -r requirements.txt
 pytest -v
 ```
 
-137 tests currently cover (129 pass with zero external services; the
-other 8 need a live local chain, see "What's next" below): password
+156 tests currently cover (140 pass with zero external services; the
+other 16 need a live local chain, see "Blockchain bridge" below): password
 hashing/JWT round-tripping (incl.
 refresh-token rotation, single-use revocation on both `/refresh` and
 `/logout`, and type-confusion rejection — an access token can't be used
@@ -353,7 +356,9 @@ profile editing with role-appropriate field scoping, the product catalog
 (including cache read-through/invalidation with a fake in-memory Redis),
 the full order lifecycle and its state machine, the self-service
 return/refund flow (window/condition checks, auto-refund vs. falling
-back to a contested dispute), the fraud model and its API wiring, the
+back to a contested dispute), the fraud model and its API wiring
+(including the rule-based duplicate-account and velocity/bot
+sub-detectors), the
 trust-score formula (including the 0/100 clamp boundaries) and its API
 (lazy compute, delivery/review-triggered recompute, ownership-gated
 manual recompute, cache invalidation), reviews, the recommendation
@@ -370,9 +375,10 @@ route's limit doesn't lock out an unrelated route), and the global
 exception handlers' error envelope. None of this needs a blockchain node,
 Docker, or Postgres running.
 
-A separate `tests/test_blockchain_bridge.py` (8 tests) exercises the
-Web3.py bridge against a **real local chain** — auto-skipped if nothing
-answers at `http://127.0.0.1:8545`. Start one and run them explicitly:
+A separate `tests/test_blockchain_bridge.py` (16 tests: 8 for
+`TrustScore.sol`, 8 for `EscrowDispute.sol`) exercises the Web3.py bridge
+against a **real local chain** — auto-skipped if nothing answers at
+`http://127.0.0.1:8545`. Start one and run them explicitly:
 
 ```bash
 npx hardhat node                                            # repo root, separate terminal
@@ -380,11 +386,13 @@ npx hardhat run scripts/deploy.js --network localhost
 pytest tests/test_blockchain_bridge.py -v
 ```
 
-All 8 pass against a live node: registering a participant, rejecting a
+All 16 pass against a live node: registering a participant, rejecting a
 double-registration, `successful_delivery`/`fraud_flagged` moving the
 on-chain score by the documented deltas (50 → 52 → 32), the score
 clamping at 0 after repeated `fraud_flagged` events, an unreachable RPC
-raising `BlockchainUnavailable` cleanly, and — against the same live
+raising `BlockchainUnavailable` cleanly, the escrow order/delivery/
+dispute/auto-resolve/arbitration lifecycle at both the raw client and
+`blockchain_service` wrapper level, and — against the same live
 chain — `blockchain_service.register_seller_onchain`/
 `register_buyer_onchain` actually driving the real client and persisting
 the on-chain registration (buyer and seller symmetric, idempotent on a
@@ -514,22 +522,22 @@ reads), orders (incl. the self-service return/refund flow), fraud
 detection, trust scoring (also Redis-cached), recommendations (incl.
 city-level buyer-seller proximity), reviews, disputes, wishlist, the
 admin module, the blockchain bridge (buyer and seller registration,
-symmetric), rate limiting, structured logging, and global exception
-handling are all live and tested (137 tests total: 129 pass with zero
-external services, the other 8 need a live local chain — see "Blockchain
-bridge" in `documentation/05_testing_and_results.md`). What's left,
-honestly:
+symmetric), rate limiting, structured logging, rule-based fraud
+sub-detectors, and global exception handling are all live and tested (156
+tests total: 140 pass with zero external services, the other 16 need a
+live local chain — see "Blockchain bridge" in
+`documentation/05_testing_and_results.md`). What's left, honestly:
 
 - **Sepolia deployment** — needs a funded testnet wallet + RPC endpoint
   this project doesn't have provisioned; the contracts and deploy script
   are ready and proven against a real local chain, just not a public one.
-- **Granular fraud sub-detectors** (duplicate-account detection, bot
-  activity, location anomalies, explicit fake-buyer flagging) aren't
-  separate from the general fraud classifier — `is_new_seller` and
-  `velocity_1h` are the closest proxies today. Location anomaly
-  specifically needs an address/geo column that doesn't exist in the
-  schema; the others are additional models/rules layered on top of the
-  existing classifier, not yet built.
+- ~~**Granular fraud sub-detectors**~~ — done: `app/ml/fraud_rules.py` adds
+  explicit duplicate-account and velocity/bot rules alongside the general
+  classifier (see `documentation/05_testing_and_results.md`). **Location
+  anomaly specifically is still out** — it needs an address/geo column
+  that doesn't exist in the schema; adding it would mean scoring against
+  faked data, the same mistake `features.py` already documents avoiding
+  for `distance_km`.
 
 What's outside the backend entirely: the React frontend, deployment
 (Docker/CI/Render — see `deployment/README.md`), and the documentation
