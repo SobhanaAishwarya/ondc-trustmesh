@@ -6,10 +6,6 @@ carries a live **trust score**, risky transactions are **flagged for fraud**,
 recommendations weigh **seller trust and proximity**, and disputes are
 settled through **on-chain escrow**.
 
-**Live:** [frontend](https://ondc-frontend.onrender.com) ·
-[API](https://ondc-backend-5kxh.onrender.com) (Render free tier — the first
-request may take a minute to wake up)
-
 FastAPI · PostgreSQL · Redis · React + TypeScript · Solidity / Hardhat · Web3.py · Scikit-learn · Docker · GitHub Actions
 
 ## The problem
