@@ -248,3 +248,7 @@ Hardhat, Ethers.js, Chai/Mocha
 IEEE paper: "Blockchain Meets AI: Future of Decentralized Digital Commerce
 with ONDC" (referenced in the project brief; concepts adapted here rather
 than reproduced).
+
+---
+
+© 2026 Kantapalli Sobhana Aishwarya. All rights reserved. Shared for portfolio viewing; please ask before reusing.
