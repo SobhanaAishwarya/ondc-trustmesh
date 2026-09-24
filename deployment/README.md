@@ -13,9 +13,7 @@ a full manual run against a live local chain (deploy → register a seller
 on-chain → place and deliver a real order → watch the trust score move
 on-chain via a real mined transaction).
 
-**Render deployment has also actually been run**, not just written —
-live at [ondc-frontend.onrender.com](https://ondc-frontend.onrender.com) /
-[ondc-backend-5kxh.onrender.com](https://ondc-backend-5kxh.onrender.com).
+**Render deployment has also actually been run**, not just written.
 Getting there caught three real bugs no amount of local review would
 have (Postgres and Docker aren't available in every dev environment, and
 none of these are things SQLite/localhost would ever surface):
@@ -34,7 +32,7 @@ none of these are things SQLite/localhost would ever surface):
 3. **The deployed frontend silently couldn't reach the backend at all**
    — `render.yaml`'s placeholder `VITE_API_URL` (`ondc-backend.onrender.com`)
    didn't match the hostname Render actually assigned
-   (`ondc-backend-5kxh.onrender.com` — the plain name was already taken
+   (the actual backend hostname — the plain name was already taken
    by another Render account; hostnames are global). The app *looked*
    fine — it loaded, nothing crashed — every API call just failed. Found
    by fetching the deployed JS bundle and grepping for the actual baked-in
