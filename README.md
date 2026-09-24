@@ -1,17 +1,113 @@
 # TrustMesh — Blockchain-AI Trust Layer for ONDC
 
-> **This repo holds two implementations.** The one actually deployed and
-> submitted is `backend/` (FastAPI) + `frontend/` (React) — see
-> [`backend/README.md`](backend/README.md) for the real, production
-> architecture, and the root [`render.yaml`](render.yaml) for how it's
-> hosted. Everything below this line describes a separate, earlier
-> Streamlit dashboard kept at the repo root for reference. **Its KPI
-> numbers (accuracy, CTR lift, blockchain timing) come from that
-> dashboard's own synthetic simulation and describe only that prototype —
-> they are not measurements of the deployed backend/frontend system**,
-> which has its own, different, independently-measured results (see
-> `backend/README.md` and `documentation/05_testing_and_results.md`).
-> Don't quote this page's numbers as the project's numbers.
+A marketplace trust layer for the Open Network for Digital Commerce (ONDC):
+buyers, sellers and admins on a FastAPI + React platform where every seller
+carries a live **trust score**, risky transactions are **flagged for fraud**,
+recommendations weigh **seller trust and proximity**, and disputes are
+settled through **on-chain escrow**.
+
+**Live:** [frontend](https://ondc-frontend.onrender.com) ·
+[API](https://ondc-backend-5kxh.onrender.com) (Render free tier — the first
+request may take a minute to wake up)
+
+FastAPI · PostgreSQL · Redis · React + TypeScript · Solidity / Hardhat · Web3.py · Scikit-learn · Docker · GitHub Actions
+
+## The problem
+
+Open commerce networks connect buyers to many independent sellers, but a
+buyer has little to go on when choosing between them, and disputes depend on
+whoever holds the money. TrustMesh explores making seller reputation and
+dispute settlement **transparent and tamper-evident**, with ML handling the
+parts that need judgement (fraud risk, recommendations).
+
+## What it does
+
+| Area | How it works |
+|---|---|
+| **Trust scoring** | Multi-factor score per seller (completion rate, ratings, complaints, refunds, late deliveries, fraud probability, disputes, seller age), stored as a time series |
+| **Fraud detection** | Random Forest classifier on transaction, buyer and seller-trust features, plus explicit rule-based detectors (duplicate accounts, order-velocity bursts) |
+| **Recommendations** | Hybrid recommender — TF-IDF content similarity, item-based collaborative filtering, seller-trust and proximity blending, popularity fallback for cold start — plus a "compare sellers" view |
+| **Disputes & escrow** | `EscrowDispute.sol` holds buyer funds per order and releases, splits or arbitrates them; the backend mirrors the resolution rules |
+| **Decentralised identity** | Wallet sign-in via a signed challenge, alongside JWT auth with refresh-token rotation |
+| **Roles** | Buyer, seller and admin dashboards; admin analytics, user management and fraud review |
+
+## Screenshots
+
+| Seller dashboard | Seller trust dashboard |
+| --- | --- |
+| ![Seller dashboard](documentation/screenshots/04-seller-dashboard-light.png) | ![Trust dashboard](documentation/screenshots/07-seller-trust-dashboard.png) |
+
+| Buyer product detail | Admin fraud dashboard |
+| --- | --- |
+| ![Product detail](documentation/screenshots/10-buyer-product-detail.png) | ![Fraud dashboard](documentation/screenshots/15-admin-fraud-dashboard.png) |
+
+More in [`documentation/screenshots/`](documentation/screenshots/).
+
+## Architecture
+
+```
+React + TypeScript (Vite, TanStack Query)
+            │  REST /api/v1  (types generated from OpenAPI)
+            ▼
+FastAPI ── SQLAlchemy / Alembic ──► PostgreSQL
+   │   └── Redis (caching, token revocation)
+   ├── ML services: fraud model · trust score · recommender · dispute rules
+   └── Web3.py bridge ──► TrustScore.sol · EscrowDispute.sol (Hardhat)
+```
+
+The blockchain bridge is best-effort: if no chain is configured, orders,
+deliveries and disputes still work and on-chain calls are skipped.
+
+## Repository layout
+
+| Path | What's there |
+|---|---|
+| [`backend/`](backend/README.md) | FastAPI app, models, migrations, ML services, tests — **start here** |
+| [`frontend/`](frontend/README.md) | React + TypeScript client (Vitest unit tests, Playwright E2E) |
+| `contracts/`, `test/`, `scripts/` | Solidity contracts, Hardhat tests and deploy script |
+| [`documentation/`](documentation/README.md) | Project report, architecture diagrams, schema, algorithms, test results |
+| [`deployment/`](deployment/README.md) | Docker and Render deployment notes |
+| `app.py`, `pages/`, `ml/`, `blockchain/` | Earlier Streamlit prototype (see below) |
+
+## Run it locally
+
+```bash
+# Backend — Postgres + Redis via Docker
+cd backend
+pip install -r requirements.txt
+cp .env.example .env
+docker compose -f docker-compose.dev.yml up -d
+alembic upgrade head
+uvicorn app.main:app --reload          # http://localhost:8000/docs
+
+# Frontend
+cd ../frontend
+npm install
+cp .env.example .env.local
+npm run dev                             # http://localhost:5173
+
+# Smart contracts
+npm install && npx hardhat test
+```
+
+Backend tests run against in-memory SQLite (`cd backend && pytest -v`).
+GitHub Actions runs the backend, frontend and contract test suites on every
+push.
+
+## A note on data
+
+No public ONDC transaction or fraud dataset exists, so the fraud model is
+trained on **synthetic transactions** with an engineered signal. Reported
+model metrics describe performance on that synthetic data — they show the
+approach works end to end, not real-world ONDC fraud rates.
+
+---
+
+## Earlier Streamlit prototype
+
+Before the FastAPI + React system, the concepts were prototyped as a
+Streamlit dashboard, kept at the repo root for reference. Its KPI numbers
+come from its own synthetic simulation and describe only that prototype.
 
 Prototype for **Project 3: Blockchain-AI Enhanced ONDC Implementation** — a
 decentralized trust-scoring and dispute-resolution layer for the Open Network
@@ -37,7 +133,7 @@ The same trust-scoring and escrow/dispute rules are implemented as Solidity
 smart contracts (`contracts/TrustScore.sol`, `contracts/EscrowDispute.sol`)
 for real deployment to an Ethereum testnet.
 
-## What's live data vs. simulated
+### What's live data vs. simulated
 
 No public ONDC transaction/fraud dataset exists, so the fraud model and
 recommender train on **synthetic data** (`ml/data.py`) with a deliberately
@@ -53,7 +149,7 @@ instantly with no wallet or RPC connection. The Solidity contracts in
 `contracts/` implement the same rules for an actual testnet deployment —
 see [Smart contracts](#smart-contracts) below.
 
-## Getting started
+### Getting started
 
 ```bash
 pip install -r requirements.txt
@@ -64,7 +160,7 @@ The sidebar has six pages: **Overview** (live network snapshot + KPI
 status + activity feed) → **Trust Ledger** → **Fraud Detection** →
 **Recommendations** → **Dispute Resolution** → **Smart Contracts**.
 
-## KPI targets and where they're demonstrated
+### KPI targets and where they're demonstrated
 
 | KPI | Where | Notes |
 |---|---|---|
@@ -74,7 +170,7 @@ status + activity feed) → **Trust Ledger** → **Fraud Detection** →
 | Blockchain transaction processing under 30s | Trust Ledger page | Sub-millisecond in the local simulation; real testnet block times are ~12s |
 | Comprehensive testing on Ethereum testnet | `test/*.test.js` | Hardhat test suite — run locally or against Sepolia |
 
-## Smart contracts
+### Smart contracts
 
 `TrustScore.sol` maintains a 0-100 on-chain score per participant, adjusted
 by authorized reporters (e.g. the escrow contract) on events like
@@ -119,12 +215,12 @@ endpoint (e.g. Alchemy/Infura) and a funded testnet wallet; the local
 deploy above has been run and verified end-to-end against the backend
 (see `backend/README.md`'s blockchain section) — Sepolia has not.
 
-## Tech stack
+### Tech stack
 
 Python, Streamlit, Pandas, NumPy, Scikit-learn, Plotly · Solidity 0.8,
 Hardhat, Ethers.js, Chai/Mocha
 
-## Files
+### Files
 
 | File/dir | Purpose |
 |---|---|
@@ -147,7 +243,7 @@ Hardhat, Ethers.js, Chai/Mocha
 | `scripts/deploy.js` | Hardhat deployment script |
 | `test/*.test.js` | Hardhat/Chai contract tests |
 
-## Reference
+### Reference
 
 IEEE paper: "Blockchain Meets AI: Future of Decentralized Digital Commerce
 with ONDC" (referenced in the project brief; concepts adapted here rather
